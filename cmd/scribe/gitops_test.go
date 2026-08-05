@@ -1,6 +1,38 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// TestGitChangedFilesExcludesClaudeDir pins that tracked .claude/ tooling files
+// (agent configs, commands, rules) are never pulled into the extraction set —
+// they're tracked so git ls-files/diff would otherwise include them.
+func TestGitChangedFilesExcludesClaudeDir(t *testing.T) {
+	repo := initTestGitRepo(t, "Extract Tester")
+	writeTestArticle(t, repo, "README.md", "# proj\n")
+	writeTestArticle(t, repo, ".claude/rules/angular.md", "tooling config, not knowledge\n")
+	writeTestArticle(t, repo, "docs/design.md", "real project knowledge\n")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-q", "-m", "init")
+
+	got := gitChangedFiles(repo, "", []string{"*.md", "*.txt"})
+
+	for _, f := range got {
+		if strings.Contains(f, "/.claude/") {
+			t.Errorf(".claude tooling file leaked into extraction set: %s", f)
+		}
+	}
+	found := false
+	for _, f := range got {
+		if strings.HasSuffix(f, "/docs/design.md") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected docs/design.md in the extraction set, got %v", got)
+	}
+}
 
 func TestPullBeforeSyncEnabled_DefaultsTrue(t *testing.T) {
 	if !pullBeforeSyncEnabled(nil) {
