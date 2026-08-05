@@ -26,6 +26,7 @@ var excludedDirNames = map[string]bool{
 	"node_modules": true,
 	".git":         true,
 	".elixir_ls":   true,
+	".claude":      true, // agent/tooling config, not project knowledge
 	"evals":        true,
 }
 

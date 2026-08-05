@@ -39,9 +39,9 @@ func gitChangedFiles(repoPath, oldSHA string, patterns []string) []string {
 		// The incremental path below never had this problem: `git diff`
 		// only ever reports tracked files.
 		if files, ok := gitListFiles(repoPath, patterns); ok {
-			return files
+			return excludeToolingPaths(files)
 		}
-		return findFiles(repoPath, patterns)
+		return excludeToolingPaths(findFiles(repoPath, patterns))
 	}
 
 	args := make([]string, 0, 7+len(patterns))
@@ -58,7 +58,37 @@ func gitChangedFiles(repoPath, oldSHA string, patterns []string) []string {
 			files = append(files, filepath.Join(repoPath, line))
 		}
 	}
-	return files
+	return excludeToolingPaths(files)
+}
+
+// toolingDirNames are repo directories that hold tooling/config, not project
+// knowledge, so they must never be extracted into the KB. The findFiles and
+// deep walkers already skip these by directory name; excludeToolingPaths
+// applies the same exclusion to the git ls-files / git diff outputs, whose
+// entries are tracked files (so --exclude-standard doesn't drop them). Keep
+// the entries here in sync with deep.go's excludedDirNames.
+var toolingDirNames = map[string]bool{".claude": true}
+
+// excludeToolingPaths drops any path that lives under a toolingDirNames
+// segment (e.g. <repo>/.claude/rules/foo.md).
+func excludeToolingPaths(files []string) []string {
+	if len(files) == 0 {
+		return files
+	}
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		excluded := false
+		for _, seg := range strings.Split(f, string(filepath.Separator)) {
+			if toolingDirNames[seg] {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // gitListFiles lists the files git would consider part of repoPath —
@@ -463,7 +493,7 @@ func isNonFastForward(stderr string) bool {
 func findFiles(root string, patterns []string) []string {
 	excludeDirs := map[string]bool{
 		"_build": true, "deps": true, "node_modules": true,
-		".git": true, ".elixir_ls": true, "temp": true,
+		".git": true, ".elixir_ls": true, "temp": true, ".claude": true,
 	}
 
 	var files []string
