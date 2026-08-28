@@ -220,9 +220,11 @@ func commitDreamCycle(root, today, commitMsgPrefix string, preCount int) error {
 		}
 
 		// Reindex qmd — no git changes, so no push race.
-		runCmd(root, "qmd", "update")
-		runCmd(root, "qmd", "embed")
-		logMsg("dream", "qmd reindexed")
+		if err := reindexQMD(root, "dream"); err != nil {
+			logMsg("dream", "qmd reindex failed: %v", err)
+		} else {
+			logMsg("dream", "qmd reindexed")
+		}
 	} else {
 		logMsg("dream", "no changes made")
 	}

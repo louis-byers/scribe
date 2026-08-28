@@ -104,8 +104,9 @@ func (a *AssessCmd) Run() error {
 		// _backlinks.json — without this they drift until the next
 		// sync run rebuilds them.
 		rebuildIndexAndBacklinks(root)
-		runCmd(root, "qmd", "update")
-		runCmd(root, "qmd", "embed")
+		if err := reindexQMD(root, "assess"); err != nil {
+			logMsg("assess", "qmd reindex failed: %v", err)
+		}
 		writeHotMDQuiet(root)
 		logMsg("assess", "done (envelope) — overview at projects/%s/overview.md", strings.ToLower(a.Project))
 		return nil
@@ -199,9 +200,10 @@ func (a *AssessCmd) Run() error {
 	}
 	logMsg("assess", "consolidation done in %s", time.Since(consStart).Round(time.Second))
 
-	// Best-effort reindex. Non-fatal.
-	runCmd(root, "qmd", "update")
-	runCmd(root, "qmd", "embed")
+	// Best-effort reindex. Non-fatal, but no longer silent.
+	if err := reindexQMD(root, "assess"); err != nil {
+		logMsg("assess", "qmd reindex failed: %v", err)
+	}
 
 	if !a.Keep {
 		if err := os.RemoveAll(outDir); err != nil {
