@@ -22,6 +22,11 @@ import (
 func commitTestKB(t *testing.T) string {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	// commitRun reindexes qmd after committing wiki content. Without this
+	// the suite shells out to the real `qmd` binary and registers every
+	// t.TempDir() fixture as a collection in the developer's global qmd
+	// store. Same guard the team/write/dream suites use.
+	t.Setenv("SCRIBE_SKIP_REINDEX", "1")
 	root := initTestGitRepo(t, "Commit Tester")
 	writeTestArticle(t, root, "scribe.yaml", "owner: t\nteam: true\nlock_dir: "+t.TempDir()+"\n")
 	for _, args := range [][]string{{"add", "."}, {"commit", "-q", "-m", "baseline", "--no-gpg-sign"}} {

@@ -269,8 +269,9 @@ func (d *DeepCmd) checkpointManifest(root string, manifest *Manifest, entry *Pro
 func (d *DeepCmd) reindexAndCommit(root string, batchNum int) {
 	rebuildIndexAndBacklinks(root)
 	logMsg("deep", "reindexing qmd...")
-	runCmd(root, "qmd", "update")
-	runCmd(root, "qmd", "embed")
+	if err := reindexQMD(root, "deep"); err != nil {
+		logMsg("deep", "qmd reindex failed: %v", err)
+	}
 
 	if !gitIsDirty(root) {
 		return
