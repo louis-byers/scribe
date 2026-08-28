@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -389,13 +390,8 @@ func (s *SyncCmd) showChanged(manifest *Manifest) error {
 // reindex runs qmd update + embed and exits.
 func (s *SyncCmd) reindex(root string) error {
 	logMsg("sync", "reindex-only mode")
-	out := runCmd(root, "qmd", "update")
-	if out != "" {
-		fmt.Println(out)
-	}
-	out = runCmd(root, "qmd", "embed")
-	if out != "" {
-		fmt.Println(out)
+	if err := reindexQMD(root, "sync"); err != nil {
+		return err
 	}
 	logMsg("sync", "reindex complete")
 	return nil
@@ -467,6 +463,37 @@ func rebuildIndexAndBacklinks(root string) {
 	}
 }
 
+// reindexQMD runs `qmd update` + `qmd embed` and REPORTS failure rather
+// than swallowing it. Every qmd call used to go through runCmd, which
+// returns "" on error and drops the error entirely — so a qmd that failed
+// under cron still logged "qmd reindex complete", left the index stale,
+// and wrote nothing to the run record. That made a stale index
+// indistinguishable from a fresh one from the outside.
+//
+// Errors are joined and returned; callers for whom a reindex is
+// best-effort can log without aborting, but they can no longer be
+// silently wrong. label selects the log prefix (sync / dream / commit).
+//
+// Skipped when SCRIBE_SKIP_REINDEX=1, for the reason spelled out on
+// rebuildIndexAndBacklinks: under test this would hit the real qmd index.
+func reindexQMD(root, label string) error {
+	if os.Getenv("SCRIBE_SKIP_REINDEX") == "1" {
+		return nil
+	}
+	var errs []error
+	for _, step := range []string{"update", "embed"} {
+		out, err := runCmdErr(root, "qmd", step)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("qmd %s: %w: %s", step, err, lastLine(out)))
+			continue
+		}
+		if out != "" {
+			logMsg(label, "%s", lastLine(out))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // rebuildAndReindex runs backlinks, index, and qmd reindex.
 //
 // Honors SCRIBE_SKIP_REINDEX=1 for the same reason rebuildIndexAndBacklinks
@@ -512,13 +539,8 @@ func (s *SyncCmd) rebuildAndReindex(root string) error {
 	logMsg("sync", "index/backlinks/sections/contradictions rebuilt")
 
 	logMsg("sync", "reindexing qmd...")
-	out = runCmd(root, "qmd", "update")
-	if out != "" {
-		logMsg("sync", "%s", lastLine(out))
-	}
-	out = runCmd(root, "qmd", "embed")
-	if out != "" {
-		logMsg("sync", "%s", lastLine(out))
+	if err := reindexQMD(root, "sync"); err != nil {
+		return err
 	}
 	logMsg("sync", "qmd reindex complete")
 
