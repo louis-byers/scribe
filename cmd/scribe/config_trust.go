@@ -84,7 +84,12 @@ type sensitiveConfig struct {
 	ClaudeProjectsDir string        `json:"claude_projects_dir"`
 	CodexSessionsDir  string        `json:"codex_sessions_dir"`
 	CcriderDB         string        `json:"ccrider_db"`
-	Capture           CaptureConfig `json:"capture"`
+	// QMDPath names a binary scribe EXECUTES. A pushed change to it in a
+	// shared KB is arbitrary code execution on every machine that syncs,
+	// which makes it the most sensitive leaf in this struct — locked
+	// unconditionally, not merely diffed.
+	QMDPath string        `json:"qmd_path"`
+	Capture CaptureConfig `json:"capture"`
 	// Integrations is a personal ingestion source (pull adapters). Locked for
 	// the same reason as Capture: a pushed change widens what's ingested and
 	// from where. Also hard-off in team mode below.
@@ -157,6 +162,7 @@ func sensitiveFrom(cfg *ScribeConfig) sensitiveConfig {
 		ClaudeProjectsDir: cfg.ClaudeProjectsDir,
 		CodexSessionsDir:  cfg.CodexSessionsDir,
 		CcriderDB:         cfg.CcriderDB,
+		QMDPath:           cfg.QMDPath,
 		Capture:           cfg.Capture,
 		Integrations:      cfg.Integrations,
 		OllamaURL:         cfg.LLM.OllamaURL,
@@ -203,6 +209,7 @@ func (s sensitiveConfig) applyTo(cfg *ScribeConfig) {
 	cfg.ClaudeProjectsDir = s.ClaudeProjectsDir
 	cfg.CodexSessionsDir = s.CodexSessionsDir
 	cfg.CcriderDB = s.CcriderDB
+	cfg.QMDPath = s.QMDPath
 	cfg.Capture = s.Capture
 	cfg.Integrations = s.Integrations
 	cfg.LLM.OllamaURL = s.OllamaURL
@@ -445,6 +452,7 @@ func sensitiveDiff(trusted, current sensitiveConfig) []string {
 		{"claude_projects_dir", trusted.ClaudeProjectsDir, current.ClaudeProjectsDir},
 		{"codex_sessions_dir", trusted.CodexSessionsDir, current.CodexSessionsDir},
 		{"ccrider_db", trusted.CcriderDB, current.CcriderDB},
+		{"qmd_path", trusted.QMDPath, current.QMDPath},
 		{"capture", trusted.Capture, current.Capture},
 		{"integrations", trusted.Integrations, current.Integrations},
 		{"llm.ollama_url", trusted.OllamaURL, current.OllamaURL},
