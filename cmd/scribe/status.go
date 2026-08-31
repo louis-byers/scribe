@@ -366,7 +366,7 @@ func defaultStr(s, def string) string {
 // misreported as this KB's.
 func qmdCollectionStatus(root string) (string, bool) {
 	name := filepath.Base(root)
-	show, err := runCmdErr(root, "qmd", "collection", "show", name)
+	show, err := runQMD(root, "collection", "show", name)
 	if err != nil {
 		return "", false
 	}
@@ -375,7 +375,7 @@ func qmdCollectionStatus(root string) (string, bool) {
 	}
 	detail := name
 	// Files + freshness live in `collection list`, not `collection show`.
-	if list, lerr := runCmdErr(root, "qmd", "collection", "list"); lerr == nil {
+	if list, lerr := runQMD(root, "collection", "list"); lerr == nil {
 		if files, updated := qmdCollectionFilesUpdated(list, name); files != "" {
 			detail += " — " + files + " files"
 			if updated != "" {

@@ -126,11 +126,83 @@ func (c *DoctorCmd) Run() error {
 // without a cross-compile. Production never reassigns it.
 var runtimeGOOS = runtime.GOOS
 
+// cronPATH returns the PATH a scribe LaunchAgent actually receives, and
+// whether it could be determined.
+//
+// doctor used to probe every dependency with exec.LookPath, which reads
+// the PATH of the *interactive* shell doctor was typed into. That is the
+// wrong environment: launchd starts jobs with a minimal env and scribe's
+// plists run `/bin/zsh -lc`, which is non-interactive and so never
+// sources ~/.zshrc. Anything a version manager adds to PATH from there
+// (npm shims under nvm/fnm/volta) is therefore invisible to cron while
+// looking perfectly fine to doctor — which is exactly how a qmd that
+// could not be executed by any scheduled run kept reporting [ok].
+//
+// Reproducing it is one subprocess: strip the environment the way launchd
+// does and ask the same login shell the plists use what PATH it ends up
+// with.
+func cronPATH() (string, bool) {
+	if runtimeGOOS != "darwin" {
+		// LaunchAgents are the macOS-only cron mechanism; on Linux the
+		// scheduler and its environment differ, so claiming to know
+		// cron's PATH would be a guess. Stay silent instead.
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "env", "-i", "HOME="+os.Getenv("HOME"), "/bin/zsh", "-lc", "printf %s \"$PATH\"")
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return "", false
+	}
+	return string(out), true
+}
+
+// reachableFromCron reports whether binPath's directory is on cronPath.
+func reachableFromCron(binPath, cronPath string) bool {
+	dir := filepath.Dir(binPath)
+	for entry := range strings.SplitSeq(cronPath, string(os.PathListSeparator)) {
+		if entry != "" && filepath.Clean(entry) == filepath.Clean(dir) {
+			return true
+		}
+	}
+	return false
+}
+
 func checkDeps(cfg *ScribeConfig) []check {
 	var out []check
+	cronPath, cronKnown := cronPATH()
 	for _, d := range scribeDeps {
+		// qmd is resolved by scribe itself (see qmd.go: probe the node
+		// version managers, then put the binary's directory on the
+		// child's PATH for its `env node` shebang), so PATH reachability
+		// is not what decides whether cron can run it.
+		if d.Binary == "qmd" {
+			resolved := resolveQMDBinaryWith(cfg.QMDPath)
+			if filepath.IsAbs(resolved) {
+				detail := resolved
+				if cronKnown && !reachableFromCron(resolved, cronPath) {
+					detail += " (not on cron PATH — scribe invokes it by absolute path)"
+				}
+				out = append(out, check{Section: "deps", Name: d.Name, Status: statusOK, Detail: detail})
+			} else {
+				out = append(out, check{Section: "deps", Name: d.Name, Status: statusFail, Detail: "not found in PATH or any known node install", Fix: d.Fix + " (or set qmd_path in scribe.yaml)"})
+			}
+			continue
+		}
+
 		path, err := exec.LookPath(d.Binary)
 		switch {
+		case err == nil && cronKnown && !reachableFromCron(path, cronPath):
+			// Found interactively but unreachable from a scheduled run:
+			// the failure mode that hid a dead qmd for weeks. Warn rather
+			// than FAIL — an interactive-only install still works for
+			// everything the user runs by hand.
+			out = append(out, check{
+				Section: "deps", Name: d.Name, Status: statusWarn,
+				Detail: path + " — on your PATH but NOT on cron's; scheduled runs cannot execute it",
+				Fix:    "move it somewhere on cron's PATH (e.g. ~/.local/bin) or symlink it there",
+			})
 		case err == nil:
 			out = append(out, check{Section: "deps", Name: d.Name, Status: statusOK, Detail: path})
 		case d.Required:
