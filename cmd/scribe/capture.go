@@ -95,7 +95,18 @@ func (c *CaptureCmd) Run() error {
 
 	selfChatIDs := resolveSelfChatHandles(cfg.Capture)
 	if len(selfChatIDs) == 0 {
-		return errors.New("no self-chat handle configured\n\nSet one of:\n  scribe.yaml →\n    capture:\n      self_chat_handles:\n        - \"+1234567890\"\n        - \"you@icloud.com\"\n  or env:\n    SCRIBE_SELF_CHAT_ID=\"+1234567890,you@icloud.com\"\n\nList every iMessage address you use to message yourself — phone numbers and emails each map to a distinct chat in chat.db")
+		// Capture is optional: the README documents an empty
+		// self_chat_handles as "capture disabled", and doctor's capture
+		// row already reports it as not set up. Failing hard here made the
+		// capture-imessage LaunchAgent record an error on all 6 of its
+		// daily runs. Recording it as degraded would be no better, since
+		// doctor counts degraded runs toward the same repeated-failure
+		// streak. Disabled is a legitimate state, so this is a clean no-op.
+		//
+		// Terse on purpose: cron captures stdout. The "here is what to
+		// set" guidance lives on doctor's capture row.
+		logMsg("capture", "no self-chat handle configured — iMessage capture disabled (set capture.self_chat_handles in scribe.yaml or SCRIBE_SELF_CHAT_ID to enable)")
+		return nil
 	}
 
 	messages, err := readSelfChatMessages(selfChatIDs, since)
