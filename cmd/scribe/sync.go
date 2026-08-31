@@ -482,7 +482,7 @@ func reindexQMD(root, label string) error {
 	}
 	var errs []error
 	for _, step := range []string{"update", "embed"} {
-		out, err := runCmdErr(root, "qmd", step)
+		out, err := runQMD(root, step)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("qmd %s: %w: %s", step, err, lastLine(out)))
 			continue
