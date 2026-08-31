@@ -95,7 +95,20 @@ func (c *CaptureCmd) Run() error {
 
 	selfChatIDs := resolveSelfChatHandles(cfg.Capture)
 	if len(selfChatIDs) == 0 {
-		return errors.New("no self-chat handle configured\n\nSet one of:\n  scribe.yaml →\n    capture:\n      self_chat_handles:\n        - \"+1234567890\"\n        - \"you@icloud.com\"\n  or env:\n    SCRIBE_SELF_CHAT_ID=\"+1234567890,you@icloud.com\"\n\nList every iMessage address you use to message yourself — phone numbers and emails each map to a distinct chat in chat.db")
+		// Capture is optional — the README says so and doctor already
+		// treats an unconfigured capture as a skip. Failing hard here
+		// made the capture-imessage LaunchAgent report an error on all 6
+		// of its daily runs for weeks, which read as a broken feature
+		// rather than an unconfigured one and buried the run log in noise
+		// that hid a real qmd outage. Degraded is the honest signal: the
+		// run exits 0 (cron resilience), doctor can still see that a
+		// scheduled job cannot do its job, and the fix is one line away.
+		//
+		// Terse on purpose: cron captures stdout. The full "here is what
+		// to set" guidance lives on doctor's capture row.
+		logPhaseDegraded("capture", "config",
+			"no self-chat handle configured — set capture.self_chat_handles in scribe.yaml (or SCRIBE_SELF_CHAT_ID); skipping iMessage scan")
+		return nil
 	}
 
 	messages, err := readSelfChatMessages(selfChatIDs, since)
