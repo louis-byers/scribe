@@ -219,3 +219,51 @@ func TestBuildCaptureArticle_TitleSurvivesBackslashAndNewline(t *testing.T) {
 		t.Errorf("title = %q, want %q", fm.Title, want)
 	}
 }
+
+// The KB template ships `self_chat_handles: [""]` as a placeholder. An
+// empty entry is filtered, so a config that LOOKS populated resolves to
+// zero handles — the reason capture reported an error on 6 cron runs a
+// day for weeks.
+func TestResolveSelfChatHandlesTreatsTemplatePlaceholderAsUnset(t *testing.T) {
+	t.Setenv("SCRIBE_SELF_CHAT_ID", "")
+	if got := resolveSelfChatHandles(CaptureConfig{SelfChatHandles: []string{""}}); len(got) != 0 {
+		t.Errorf("resolveSelfChatHandles = %v, want empty for the placeholder entry", got)
+	}
+	// A real handle alongside the placeholder still resolves.
+	got := resolveSelfChatHandles(CaptureConfig{SelfChatHandles: []string{"", "you@icloud.com"}})
+	if len(got) != 1 || got[0] != "you@icloud.com" {
+		t.Errorf("resolveSelfChatHandles = %v, want [you@icloud.com]", got)
+	}
+}
+
+// Capture is optional, so an unconfigured handle must not fail the run —
+// but it must stay visible to `scribe doctor` rather than passing as ok.
+func TestCaptureWithoutHandleDegradesInsteadOfFailing(t *testing.T) {
+	resetRunOutcome()
+	t.Cleanup(resetRunOutcome)
+	t.Setenv("SCRIBE_SELF_CHAT_ID", "")
+
+	// lock_dir must be isolated: the default is /tmp, where a real cron
+	// capture would hold the lock and send Run() down the early-return
+	// path instead of the one under test.
+	stubHarnessKB(t, "owner_name: t\nlock_dir: "+t.TempDir()+
+		"\ncapture:\n  self_chat_handles:\n    - \"\"\n")
+
+	if err := (&CaptureCmd{}).Run(); err != nil {
+		t.Fatalf("Run() = %v, want nil: an unconfigured optional feature must not fail a scheduled run", err)
+	}
+
+	phases, msgs := degradedPhases()
+	if len(phases) == 0 {
+		t.Fatal("run was not marked degraded — doctor cannot distinguish this from a clean capture")
+	}
+	var found bool
+	for _, p := range phases {
+		if strings.Contains(msgs[p], "no self-chat handle configured") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("degraded phases %v / msgs %v do not name the missing handle", phases, msgs)
+	}
+}
