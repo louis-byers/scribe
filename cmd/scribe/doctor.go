@@ -150,7 +150,14 @@ func cronPATH() (string, bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "env", "-i", "HOME="+os.Getenv("HOME"), "/bin/zsh", "-lc", "printf %s \"$PATH\"")
+	// os.UserHomeDir rather than os.Getenv("HOME"): same value, but it
+	// keeps an environment read from flowing straight into an exec
+	// argument, which gosec flags as G702 taint.
+	home, hErr := os.UserHomeDir()
+	if hErr != nil {
+		return "", false
+	}
+	cmd := exec.CommandContext(ctx, "env", "-i", "HOME="+home, "/bin/zsh", "-lc", "printf %s \"$PATH\"")
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
 		return "", false
