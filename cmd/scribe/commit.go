@@ -160,7 +160,12 @@ func commitRun(root string) error {
 	// sync already rebuilds them. qmd's index lives outside the repo.
 	if wikiN > 0 {
 		if err := reindexQMD(root, "commit"); err != nil {
-			logMsg("commit", "qmd reindex failed: %v", err)
+			// Degraded, not a bare log: the commit landed but its content
+			// stays unsearchable until some later run reindexes it, which
+			// is deferred work and must reach `scribe doctor`. Rule per
+			// 9c6d8bf ("a seam records degraded when a unit of work is
+			// lost, repeated, or deferred").
+			logPhaseFailure("commit", "qmd reindex", err)
 		}
 	}
 
