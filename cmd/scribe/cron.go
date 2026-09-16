@@ -729,15 +729,16 @@ func resolveScribeBinary() string {
 type CronInstallCmd struct {
 	DryRun      bool `help:"Print generated plists without writing or loading them."`
 	Force       bool `help:"Overwrite existing plists (including hand-edited/unstamped ones)."`
-	IfInstalled bool `help:"No-op unless scribe cron is already installed on this machine (brew post_install self-heal on upgrade)." name:"if-installed"`
+	IfInstalled bool `help:"No-op unless scribe cron is already installed on this machine." name:"if-installed"`
 }
 
 func (c *CronInstallCmd) Run() error {
-	// --if-installed must be checked before kbDir(): it exists so brew's
-	// post_install (running from an arbitrary directory, not a KB
-	// checkout — see .goreleaser.yml) can call this unconditionally on
-	// every install AND upgrade without erroring on a fresh machine that
-	// never opted into cron. Pure file read, no KB context needed.
+	// --if-installed must be checked before kbDir(): it exists so a script
+	// running from an arbitrary directory, not a KB checkout, can call this
+	// unconditionally without erroring on a fresh machine that never opted
+	// into cron. Pure file read, no KB context needed. (Homebrew's
+	// post_install used to be that caller; upgrades now self-heal from the
+	// first scheduled job instead — see agent_refresh.go.)
 	if c.IfInstalled && !anyScribeAgentInstalled() {
 		fmt.Println("cron not installed on this machine — nothing to refresh (use 'scribe cron install' to opt in)")
 		return nil
@@ -789,6 +790,27 @@ func (c *CronInstallCmd) Run() error {
 		}
 	}
 
+	if _, err := installAgents(root, jobs, c.Force, nil); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Println("Next steps:")
+	fmt.Println("  1. Verify with: scribe cron status")
+	fmt.Println("  2. Remove old cron entries: crontab -e (delete scribe lines)")
+	fmt.Println("  3. Monitor logs in /tmp/scribe-*.log")
+	return nil
+}
+
+// installAgents writes and (re)loads the LaunchAgent for every job whose
+// plist is missing or stale, and bootstraps a current one launchd lost.
+// root is the KB the plists bind to, for writeGlobalState's throwaway
+// check; "" means they bind to none (the agents are KB-agnostic).
+//
+// hold, when non-nil, vetoes jobs that must not be reloaded right now:
+// reloading is bootout + bootstrap, and bootout kills whatever the job is
+// running. Held jobs are returned by label so the caller can retry them.
+func installAgents(root string, jobs []cronJob, force bool, hold func(cronJob) bool) (held []string, err error) {
 	domain := guiDomain()
 	for _, job := range jobs {
 		raw := renderPlist(job)
@@ -796,7 +818,7 @@ func (c *CronInstallCmd) Run() error {
 		label := plistLabel(job.Name)
 
 		existing, statErr := os.ReadFile(path)
-		action := cronInstallDecision(string(existing), statErr == nil, raw, c.Force)
+		action := cronInstallDecision(string(existing), statErr == nil, raw, force)
 
 		switch action {
 		case actionSkipUpToDate:
@@ -817,6 +839,14 @@ func (c *CronInstallCmd) Run() error {
 			continue
 		}
 
+		// Held jobs are neither rewritten nor reloaded: a rewritten file
+		// would read as up to date next time while launchd still ran the
+		// old definition, so the job would never be reloaded at all.
+		if hold != nil && hold(job) {
+			held = append(held, label)
+			continue
+		}
+
 		plist := stampPlist(raw)
 
 		// LaunchAgent plists are machine-global state binding this
@@ -826,7 +856,7 @@ func (c *CronInstallCmd) Run() error {
 		// KB must never own the schedule (it vanishes on reboot and the
 		// jobs would burn tokens against a dead path).
 		if err := writeGlobalState(root, false, path, []byte(plist), 0o644); err != nil {
-			return err
+			return held, err
 		}
 		if action == actionRefresh {
 			fmt.Printf("refresh %s (content changed)\n", label)
@@ -836,13 +866,7 @@ func (c *CronInstallCmd) Run() error {
 
 		bootstrapAgent(domain, path, label)
 	}
-
-	fmt.Println()
-	fmt.Println("Next steps:")
-	fmt.Println("  1. Verify with: scribe cron status")
-	fmt.Println("  2. Remove old cron entries: crontab -e (delete scribe lines)")
-	fmt.Println("  3. Monitor logs in /tmp/scribe-*.log")
-	return nil
+	return held, nil
 }
 
 // ---- status ----

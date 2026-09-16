@@ -184,12 +184,12 @@ func TestAnyScribeAgentInstalled(t *testing.T) {
 	}
 }
 
-// TestCronInstallIfInstalledNoOp is the brew post_install contract: on a
+// TestCronInstallIfInstalledNoOp is the --if-installed contract: on a
 // machine that never opted into cron (no com.scribe.* plist anywhere),
 // `cron install --if-installed` must exit 0 without ever calling kbDir()
-// or touching global state — post_install runs from an arbitrary cwd, not
+// or touching global state — its callers run from an arbitrary cwd, not
 // a KB checkout, so reaching kbDir() at all would be a regression (it
-// would error "not inside a scribe KB checkout" and fail the brew step).
+// would error "not inside a scribe KB checkout" and fail the caller).
 func TestCronInstallIfInstalledNoOp(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)

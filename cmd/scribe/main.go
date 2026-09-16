@@ -194,10 +194,13 @@ func main() {
 
 	globalRoot = cli.Root
 
-	started := time.Now()
-	err := ctx.Run()
 	// Command path like "sync", "ingest url", "cron install". Useful for grouping.
 	cmdPath := ctx.Command()
+	// Before Run: `watch` never returns.
+	maybeRefreshAgents(cmdPath)
+
+	started := time.Now()
+	err := ctx.Run()
 	// Read-only invocations must not append a run record — that file
 	// auto-commits to the KB repo, so a `scribe doctor`/`status` or any
 	// `--dry-run` would make diagnostics self-modifying (Codex finding,

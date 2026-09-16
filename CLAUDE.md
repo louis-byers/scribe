@@ -20,6 +20,7 @@ cmd/scribe/          Single Go main + every subcommand in one package
   doctor.go          Read-only health audit
   link.go            Orphan linker (See Also injection)
   cron.go            macOS LaunchAgent install/status/uninstall
+  agent_refresh.go   upgrade self-heal: the first scheduled job of a new version refreshes stale LaunchAgents
   hook.go            SessionEnd hook: score + queue to pending-sessions.txt
   init.go            Bootstrap a new KB from embedded templates
   ingest.go          Drain inbox → raw/articles/
@@ -101,6 +102,8 @@ Everything under `$SCRIBE_KB` belongs to the user's private KB repo and is never
 ## Release
 
 GoReleaser builds darwin/linux × amd64/arm64 via the workflow in `.github/`. Tag and push to trigger. The Homebrew formula in `Formula/` is updated by the same release.
+
+**The formula has no `post_install`, and must not get one back.** Homebrew 7 deprecates it (every install printed a warning), and since Homebrew 5.1.15 post-install runs in a write sandbox with `HOME` set to a temp dir. So the `scribe cron install --if-installed` it used to run saw no LaunchAgents and did nothing, silently, for months. `post_install_steps` has a `run` verb, but it runs in the same sandbox. LaunchAgents are refreshed at runtime instead (`agent_refresh.go`): the first `each`/`watch` launchd starts under a new version (checked through `XPC_SERVICE_NAME`) rewrites stale plists, once per version (`~/.config/scribe/agents-version`). Two rules keep that safe. **(1) Never reload a running job.** Reloading is bootout + bootstrap, and bootout kills the job, including the process doing the refresh. So the refresh holds back its own label and any busy scheduled job, and writes the version stamp only after a pass holds nothing back. KeepAlive `watch` is the exception: it is restarted, unless it is the one refreshing. **(2) Never move the schedule to another binary.** If `resolveScribeBinary()` is not the running executable, nothing is rewritten. User-facing text that belongs in the formula goes in `caveats`, which Homebrew prints on upgrade as well as install.
 
 ---
 
