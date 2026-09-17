@@ -1,12 +1,30 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+// fillSessionMessages gives a fixture session enough substance to clear the
+// pre-filter's mechanical gate (>=1 user message and >=500 chars, or
+// filterVerdict reads "empty"). insertFixtureSession sets the denormalized
+// sessions.message_count but inserts no messages rows, and both status and
+// the miner compute their stats from the messages JOIN — so a fixture
+// without this is a session the miner would skip, and counting it as
+// pending is exactly the mismatch these tests exist to pin.
+func fillSessionMessages(t *testing.T, db *sql.DB, rowID int64) {
+	t.Helper()
+	body := strings.Repeat("substantive discussion content. ", 40)
+	insertFixtureMessage(t, db, rowID, "user", "opening question "+body, false)
+	insertFixtureMessage(t, db, rowID, "assistant", "reply "+body, false)
+	insertFixtureMessage(t, db, rowID, "user", "follow-up question", false)
+	insertFixtureMessage(t, db, rowID, "user", "third question", false)
+}
 
 // TestCountScopedPendingSessions verifies the backlog counts only sessions
 // whose project has an APPROVED manifest entry — not the whole global
@@ -26,7 +44,7 @@ func TestCountScopedPendingSessions(t *testing.T) {
 	})
 
 	// Sessions across approved / pending / unknown / empty-cwd projects.
-	insertFixtureSession(t, db, "s-appr-1", approved, 50, "", "", "in approved")
+	fillSessionMessages(t, db, insertFixtureSession(t, db, "s-appr-1", approved, 50, "", "", "in approved"))
 	insertFixtureSession(t, db, "s-appr-2", approved, 50, "", "", "in approved, already mined")
 	insertFixtureSession(t, db, "s-pending", pending, 50, "", "", "in pending project")
 	insertFixtureSession(t, db, "s-unknown", "/somewhere/else", 50, "", "", "no manifest entry")
@@ -192,8 +210,10 @@ func TestCountScopedPendingSessionsExcludesUnminable(t *testing.T) {
 		"someKB":  {"path": kbProject, "domain": "general"},
 	})
 
-	insertFixtureSession(t, db, "s-minable", minable, 50, "", "", "will be mined")
-	insertFixtureSession(t, db, "s-in-kb", kbProject, 50, "", "", "approved but never admissible")
+	fillSessionMessages(t, db, insertFixtureSession(t, db, "s-minable", minable, 50, "", "", "will be mined"))
+	// Deliberately ALSO mechanically rich: the KB guard must be what
+	// excludes it, not an incidentally empty fixture.
+	fillSessionMessages(t, db, insertFixtureSession(t, db, "s-in-kb", kbProject, 50, "", "", "approved but never admissible"))
 
 	cfg := loadConfig(root)
 	cfg.CcriderDB = dbPath
@@ -208,9 +228,54 @@ func TestCountScopedPendingSessionsExcludesUnminable(t *testing.T) {
 	// Guard the composition: sessionDropReason alone is permissive about
 	// unseen projects, so it must not be allowed to re-admit an unenrolled
 	// path and undo #27.
-	insertFixtureSession(t, db, "s-unknown", "/somewhere/else/entirely", 50, "", "", "no manifest entry")
+	fillSessionMessages(t, db, insertFixtureSession(t, db, "s-unknown", "/somewhere/else/entirely", 50, "", "", "no manifest entry"))
 	got, _ = countScopedPendingSessions(root, cfg, map[string]struct{}{})
 	if got != 1 {
 		t.Errorf("pending = %d, want 1: an unenrolled project must stay uncounted (#27)", got)
+	}
+}
+
+// TestCountScopedPendingSessionsExcludesThin pins the mechanical half of
+// "pending means the miner would admit it". sessionDropReason covers
+// in-a-KB / out-of-scope / pending-approval, but the thin-session gate
+// lives in preFilterSessions, so a session in a fully approved, in-scope
+// project with no user turn still has to be excluded.
+//
+// Agent-only runs are the real case: a subagent or hook-spawned session
+// records assistant turns and no user message, is refused by the miner
+// every run, and — because it is never admitted — never reaches the
+// marking that would otherwise retire it. Counting it as pending gives
+// the backlog a floor.
+func TestCountScopedPendingSessionsExcludesThin(t *testing.T) {
+	db, dbPath := newCcriderDB(t)
+	root := t.TempDir()
+	proj := filepath.Join(t.TempDir(), "Projects", "approved")
+
+	writeStatusManifest(t, root, map[string]map[string]string{
+		"approved": {"path": proj, "domain": "general"},
+	})
+
+	// Substantial: counts.
+	fillSessionMessages(t, db, insertFixtureSession(t, db, "s-rich", proj, 50, "", "", "real work"))
+
+	// Agent-only: assistant turns, no user turn. filterVerdict = "empty".
+	agentOnly := insertFixtureSession(t, db, "s-agent-only", proj, 2, "", "", "subagent run")
+	insertFixtureMessage(t, db, agentOnly, "assistant", strings.Repeat("tool output. ", 200), false)
+	insertFixtureMessage(t, db, agentOnly, "assistant", strings.Repeat("more output. ", 200), false)
+
+	// Short back-and-forth under both thresholds. filterVerdict = "thin".
+	short := insertFixtureSession(t, db, "s-thin", proj, 2, "", "", "quick question")
+	insertFixtureMessage(t, db, short, "user", "hi", false)
+	insertFixtureMessage(t, db, short, "assistant", "hello", false)
+
+	cfg := loadConfig(root)
+	cfg.CcriderDB = dbPath
+
+	got, ok := countScopedPendingSessions(root, cfg, map[string]struct{}{})
+	if !ok {
+		t.Fatal("countScopedPendingSessions returned ok=false")
+	}
+	if got != 1 {
+		t.Errorf("pending = %d, want 1: only the substantial session is minable; the agent-only and thin ones are refused by the pre-filter on every run", got)
 	}
 }
