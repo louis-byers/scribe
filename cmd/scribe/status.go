@@ -630,8 +630,18 @@ func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[st
 	if err != nil {
 		return 0, false
 	}
+	// Same aggregate the pre-filter's querySessionStats computes per
+	// session, batched: status must apply the mechanical gate too, and
+	// N round-trips for one scoreboard line is not worth it.
 	//nolint:noctx // status command is short-lived
-	rows, err := db.Query("SELECT session_id, COALESCE(project_path, '') FROM sessions")
+	rows, err := db.Query(`
+		SELECT s.session_id,
+			COALESCE(s.project_path, ''),
+			COALESCE(SUM(CASE WHEN m.type = 'user' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(LENGTH(m.text_content)), 0)
+		FROM sessions s
+		LEFT JOIN messages m ON m.session_id = s.id
+		GROUP BY s.id`)
 	if err != nil {
 		return 0, false
 	}
@@ -640,7 +650,8 @@ func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[st
 	pending := 0
 	for rows.Next() {
 		var sid, ppath string
-		if err := rows.Scan(&sid, &ppath); err != nil {
+		var userMsgs, totalChars int
+		if err := rows.Scan(&sid, &ppath, &userMsgs, &totalChars); err != nil {
 			continue
 		}
 		if ppath == "" {
@@ -656,6 +667,17 @@ func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[st
 		// ...and the miner's own admission predicate, so "pending" means
 		// "will actually be mined" rather than "lives somewhere approved".
 		if sessionDropReason(cfg, manifest, root, ppath) != "" {
+			continue
+		}
+		// ...and the mechanical gate, which lives in preFilterSessions
+		// rather than in sessionDropReason. filterVerdict is its single
+		// source of truth; re-deriving the thresholds here would let the
+		// two drift, which is what #103 extracted the other predicate to
+		// prevent. A thin session is normally marked processed when the
+		// miner meets it — but it is never admitted, so that never fires
+		// and it would otherwise count as pending forever.
+		stats := sessionFilterStats{UserMsgs: userMsgs, TotalChars: totalChars, ProjectPath: ppath, Found: true}
+		if stats.filterVerdict() != "" {
 			continue
 		}
 		if _, done := processed[sid]; done {
