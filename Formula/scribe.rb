@@ -36,9 +36,9 @@ class Scribe < Formula
   depends_on "git"
   depends_on "sqlite"
 
-  # ccrider is the Claude-session recorder scribe reads via FTS5. It ships
-  # from neilberkman's tap; brew auto-taps on install.
-  depends_on "neilberkman/tap/ccrider"
+  # ccrider (the session database scribe reads via FTS5) is not declared:
+  # neilberkman/tap ships it as a cask, and a formula cannot depend on a
+  # cask. The caveats tell users to `brew install --cask` it.
 
   # Not declared here (no brew formula exists): `claude` (install via
   # `curl -fsSL https://claude.ai/install.sh | bash` or npm), `qmd`
@@ -54,6 +54,8 @@ class Scribe < Formula
       Runtime dependencies not on Homebrew — install these separately:
         * claude     (Claude Code CLI)
                      curl -fsSL https://claude.ai/install.sh | bash
+        * ccrider    (session database for `scribe triage`)
+                     brew install --cask neilberkman/tap/ccrider
         * qmd        (semantic search over the KB)
                      npm install -g @tobilu/qmd
         * trafilatura (optional, URL → markdown)
@@ -61,7 +63,7 @@ class Scribe < Formula
         * jq, fzf    (optional)
                      brew install jq fzf
 
-      Already installed by brew as dependencies: git, sqlite, ccrider.
+      Already installed by brew as dependencies: git, sqlite.
 
       After installing:
         scribe init --path ~/my-kb --bind

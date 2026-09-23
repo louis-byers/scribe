@@ -150,7 +150,7 @@ make install    # builds with -tags sqlite_fts5 to ./bin/scribe, then deploys to
 | Tool          | Required | Used for                             | Install                                         |
 | ------------- | -------- | ------------------------------------ | ----------------------------------------------- |
 | `claude`      | yes      | session extraction + absorb          | `curl -fsSL https://claude.ai/install.sh \| bash` |
-| `ccrider`     | yes      | session database for `scribe triage` | `brew install neilberkman/tap/ccrider` (or bundled as a scribe dep via Homebrew) |
+| `ccrider`     | yes      | session database for `scribe triage` | `brew install --cask neilberkman/tap/ccrider`   |
 | `qmd`         | yes      | semantic search over the KB          | `npm install -g @tobilu/qmd`                    |
 | `sqlite3`     | yes      | chat.db + ccrider reads              | `brew install sqlite` / `apt install sqlite3`   |
 | `git`         | yes      | KB auto-commit + cron sync           | system package                                  |
@@ -158,7 +158,7 @@ make install    # builds with -tags sqlite_fts5 to ./bin/scribe, then deploys to
 | `jq`, `fzf`   | no       | manual triage / preview              | `brew install jq fzf` / apt                     |
 
 > Installing scribe via Homebrew (`brew install oliver-kriska/scribe/scribe`)
-> also pulls `git`, `sqlite`, and `ccrider` automatically. `claude`, `qmd`,
+> also pulls `git` and `sqlite` automatically. `ccrider`, `claude`, `qmd`,
 > and the optionals still need their own installs.
 
 ---
