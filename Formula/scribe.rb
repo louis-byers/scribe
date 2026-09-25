@@ -81,22 +81,17 @@ class Scribe < Formula
       keep a stable code identity. Homebrew also changes the raw executable's
       versioned Cellar path, which TCC records separately; after
       `brew upgrade scribe`, run `scribe fda` to verify and re-grant if needed.
+
+      Scheduled jobs update themselves: the first one to run after an
+      upgrade rewrites any LaunchAgent the new version changed. Plists you
+      edited by hand are left alone; adopt them back with
+      `scribe cron install --force`.
     EOS
   end
 
-  # post_install runs on fresh install and on `brew upgrade`. Keep any
-  # already-installed LaunchAgents aligned with the new binary and job set.
-  def post_install
-    return unless OS.mac?
-    ohai "Homebrew upgraded scribe to #{version}."
-    ohai "If you use iMessage capture, run `scribe fda` to verify that the new"
-    ohai "versioned Cellar path has Full Disk Access."
-    begin
-      system bin/"scribe", "cron", "install", "--if-installed"
-    rescue => e
-      opoo "scribe cron install --if-installed failed: #{e.message} (run it manually)"
-    end
-  end
+  # No post_install: Homebrew deprecates it, and its sandboxed HOME hides the
+  # user's LaunchAgents anyway. Scheduled jobs refresh them after an upgrade
+  # (cmd/scribe/agent_refresh.go), and caveats print on upgrade too.
 
   test do
     assert_match "scribe", shell_output("#{bin}/scribe --help 2>&1")

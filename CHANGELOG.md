@@ -2,6 +2,35 @@
 
 All notable changes to scribe are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/) (pre-1.0 — minor bumps may include breaking changes).
 
+## [0.5.3] — 2026-09-16
+
+`brew install` and `brew upgrade` stop warning that `post_install` is
+deprecated, and upgrades refresh your scheduled jobs again. That refresh had
+silently done nothing since Homebrew 5.1.15.
+
+### Fixed
+
+- **Upgrades refresh the LaunchAgents themselves.** The formula's
+  `post_install` ran `scribe cron install --if-installed` so an upgrade could
+  pick up new or changed jobs (#54). Since Homebrew 5.1.15 post-install runs
+  in a sandbox with `HOME` pointed at a temp dir, so that command found no
+  agents, printed "nothing to refresh" and exited 0. Homebrew 7 then
+  deprecated `post_install`, which put a warning on every install. The
+  formula no longer has one. Instead, the first scheduled job (`each` or
+  `watch`) a new version runs rewrites and reloads the plists that version
+  changed, once per version. It works for `make install` and the install
+  script as well as brew.
+  - **It never reloads a job that is running.** A reload boots the job out,
+    which kills it, so the refresh skips its own job and any scheduled job
+    that is mid-run. The next job to fire picks those up. The `watch`
+    daemon is restarted unless it is the job doing the refresh.
+  - **It never moves your schedule to another binary.** If
+    `scribe cron install` would now pick a different scribe than the one
+    running the job, it changes nothing and the job log says so.
+  - **Plists you edited by hand are left alone,** as before.
+- **The Full Disk Access reminder after `brew upgrade` moved into the
+  caveats.** Homebrew prints those on upgrade as well as on install.
+
 ## [0.5.2] — 2026-09-09
 
 A correctness patch, and the theme running through nearly all of it is the

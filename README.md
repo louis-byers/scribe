@@ -239,6 +239,8 @@ macOS cron runs under `launchd` without a login Aqua session, so it can't reach 
 
 The agents are **KB-agnostic**: each one runs `scribe each`, which iterates every KB in the `kbs:` registry (`~/.config/scribe/config.yaml`) and runs the job in each, with per-KB failure isolation — one machine-level agent set serves every KB, so installing from a second KB no longer clobbers the first's schedule. To pace an individual KB without per-KB plist schedules, give its `scribe.yaml` an `each.cadence` block: `scribe each` skips a job in that KB whenever its last run (`output/runs/*.jsonl` — one that fired, whether it finished clean or degraded) is younger than the configured interval (e.g. `"sync --sessions": 6h`, `dream: 7d`).
 
+**Upgrades update the agents for you.** When a new scribe version runs its first scheduled job, it rewrites any plist the new version changed (a new job, a new schedule) and reloads it. That holds however the binary got there: `brew upgrade`, `make install` or the install script. It never reloads a job that is running at that moment, including itself; those are picked up by the next job that fires. Plists you edited by hand are never touched (`scribe cron install --force` adopts them back). If `scribe cron install` would now resolve a different binary than the one running the job, nothing is rewritten, and the job log says to run `scribe cron install` yourself.
+
 #### Full Disk Access for `scribe capture`
 
 macOS won't let any process read `~/Library/Messages/chat.db` without Full Disk Access. Apple disallows programs from granting themselves FDA, so the toggle itself is unavoidable — but everything else is automated:

@@ -187,35 +187,17 @@ brews:
       versioned Cellar path, which TCC records separately; after
       `brew upgrade scribe`, run `scribe fda` to verify and re-grant if needed.
 
-      Upgrades already run `scribe cron install --if-installed` for you
-      (see below), so any new or changed scheduled job lands automatically
-      if you'd previously opted into cron — no manual step needed unless
-      you hand-edited a plist yourself, in which case adopt it back with
+      Scheduled jobs update themselves: the first one to run after an
+      upgrade rewrites any LaunchAgent the new version changed. Plists you
+      edited by hand are left alone; adopt them back with
       `scribe cron install --force`.
     install: |
       bin.install "scribe"
-    # custom_block is injected verbatim into the generated Formula. The
-    # post_install hook runs on every install and upgrade so scheduled jobs
-    # self-heal when a release changes the LaunchAgent set.
-    custom_block: |
-      def post_install
-        return unless OS.mac?
-        ohai "Homebrew upgraded scribe."
-        ohai "If you use iMessage capture, run `scribe fda` to verify that the"
-        ohai "new versioned Cellar path has Full Disk Access."
-
-        # Self-heal already-installed LaunchAgents so a changed job set in
-        # this release (e.g. v0.4.0 adding dream-hot) lands without a
-        # manual `scribe cron install`. --if-installed is a silent no-op
-        # on fresh installs (no plists yet — see cmd/scribe/cron.go) and
-        # only rewrites plists it can prove it authored itself. Homebrew's
-        # `system` raises on a nonzero exit, and a cron/launchctl hiccup
-        # here must never abort the brew install — rescue and warn instead.
-        begin
-          system bin/"scribe", "cron", "install", "--if-installed"
-        rescue => e
-          opoo "scribe cron install --if-installed failed: #{e.message} (run it manually)"
-        end
-      end
+    # No post_install. Homebrew 7 deprecates it, and since Homebrew 5.1.15 it
+    # runs sandboxed with HOME pointed at a temp dir, so the
+    # `scribe cron install --if-installed` it used to run never saw the
+    # user's LaunchAgents. The binary refreshes them from the first scheduled
+    # job instead (cmd/scribe/agent_refresh.go), and caveats print on upgrade
+    # as well as install, so the Full Disk Access reminder lives there.
     test: |
       assert_match "scribe", shell_output("#{bin}/scribe --help 2>&1")
