@@ -366,7 +366,7 @@ func defaultStr(s, def string) string {
 // misreported as this KB's.
 func qmdCollectionStatus(root string) (string, bool) {
 	name := filepath.Base(root)
-	show, err := runCmdErr(root, "qmd", "collection", "show", name)
+	show, err := runQMD(root, "collection", "show", name)
 	if err != nil {
 		return "", false
 	}
@@ -375,7 +375,7 @@ func qmdCollectionStatus(root string) (string, bool) {
 	}
 	detail := name
 	// Files + freshness live in `collection list`, not `collection show`.
-	if list, lerr := runCmdErr(root, "qmd", "collection", "list"); lerr == nil {
+	if list, lerr := runQMD(root, "collection", "list"); lerr == nil {
 		if files, updated := qmdCollectionFilesUpdated(list, name); files != "" {
 			detail += " — " + files + " files"
 			if updated != "" {
@@ -604,6 +604,21 @@ func pendingQueueSummary(cfg PriorityLanesConfig) (hot, normal, aged int, ok boo
 // already-mined session IDs, excluded from the tally. Reads the DB
 // read-only; returns (0, false) on any DB/manifest error so the caller
 // drops the row rather than printing a wrong number.
+//
+// The approval check alone is necessary but not sufficient: it answers
+// "does this path belong to an approved project", while admission asks
+// sessionDropReason — in-a-KB, out-of-scope, pending-approval. A session
+// can satisfy the first and fail the second, and then it is counted as
+// pending forever while the miner refuses it on every run. That gap is
+// what makes the backlog report a floor it can never reach, and a count
+// that cannot reach zero is one people learn to ignore.
+//
+// Both gates are applied, not one: sessionDropReason is deliberately
+// permissive about projects it has never seen (knowledge can be captured
+// before formal enrollment), so using it alone would re-admit the whole
+// machine's session pile on a KB with no approved projects — exactly the
+// #27 regression the approval check exists to prevent. Composed, the
+// count only ever narrows.
 func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[string]struct{}) (int, bool) {
 	db, err := openSQLiteRO(cfg.CcriderDB)
 	if err != nil {
@@ -615,8 +630,18 @@ func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[st
 	if err != nil {
 		return 0, false
 	}
+	// Same aggregate the pre-filter's querySessionStats computes per
+	// session, batched: status must apply the mechanical gate too, and
+	// N round-trips for one scoreboard line is not worth it.
 	//nolint:noctx // status command is short-lived
-	rows, err := db.Query("SELECT session_id, COALESCE(project_path, '') FROM sessions")
+	rows, err := db.Query(`
+		SELECT s.session_id,
+			COALESCE(s.project_path, ''),
+			COALESCE(SUM(CASE WHEN m.type = 'user' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(LENGTH(m.text_content)), 0)
+		FROM sessions s
+		LEFT JOIN messages m ON m.session_id = s.id
+		GROUP BY s.id`)
 	if err != nil {
 		return 0, false
 	}
@@ -625,7 +650,8 @@ func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[st
 	pending := 0
 	for rows.Next() {
 		var sid, ppath string
-		if err := rows.Scan(&sid, &ppath); err != nil {
+		var userMsgs, totalChars int
+		if err := rows.Scan(&sid, &ppath, &userMsgs, &totalChars); err != nil {
 			continue
 		}
 		if ppath == "" {
@@ -636,6 +662,22 @@ func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[st
 		// a basename collision can't borrow another project's approval.
 		entry := manifest.entryForPath(ppath)
 		if entry == nil || !entry.IsApproved() {
+			continue
+		}
+		// ...and the miner's own admission predicate, so "pending" means
+		// "will actually be mined" rather than "lives somewhere approved".
+		if sessionDropReason(cfg, manifest, root, ppath) != "" {
+			continue
+		}
+		// ...and the mechanical gate, which lives in preFilterSessions
+		// rather than in sessionDropReason. filterVerdict is its single
+		// source of truth; re-deriving the thresholds here would let the
+		// two drift, which is what #103 extracted the other predicate to
+		// prevent. A thin session is normally marked processed when the
+		// miner meets it — but it is never admitted, so that never fires
+		// and it would otherwise count as pending forever.
+		stats := sessionFilterStats{UserMsgs: userMsgs, TotalChars: totalChars, ProjectPath: ppath, Found: true}
+		if stats.filterVerdict() != "" {
 			continue
 		}
 		if _, done := processed[sid]; done {

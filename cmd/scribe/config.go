@@ -108,10 +108,15 @@ type ScribeConfig struct {
 	// killer of shared KBs is "everyone assumes someone else will update
 	// the page"; a name per domain is the cheapest fix. Keys are domain
 	// names; values are display names matching `contributor:`.
-	Owners       map[string]string `yaml:"owners"`
-	CcriderDB    string            `yaml:"ccrider_db"`
-	LockDir      string            `yaml:"lock_dir"`
-	DefaultModel string            `yaml:"default_model"`
+	Owners    map[string]string `yaml:"owners"`
+	CcriderDB string            `yaml:"ccrider_db"`
+	// QMDPath is an explicit path to the qmd binary. Escape hatch for an
+	// install the prober in qmd.go does not know about — normally unset.
+	// Needed because qmd is an npm shim under a node version manager and
+	// so is invisible to a cron LaunchAgent's non-interactive PATH.
+	QMDPath      string `yaml:"qmd_path"`
+	LockDir      string `yaml:"lock_dir"`
+	DefaultModel string `yaml:"default_model"`
 	// KBName is the display-level name of this KB, used for:
 	//   - the drop-file directory other projects write to
 	//     (`.claude/<kb_name>/*.md`)
@@ -759,6 +764,7 @@ func loadConfig(root string) *ScribeConfig {
 	cfg.CodexSessionsDir = expandHome(cfg.CodexSessionsDir)
 	cfg.CcriderDB = expandHome(cfg.CcriderDB)
 	cfg.LockDir = expandHome(cfg.LockDir)
+	cfg.QMDPath = expandHome(cfg.QMDPath)
 
 	// Merge user overrides on top of absorb defaults (zero-valued fields
 	// inherit). Partial user config is legal and common. LLMConfig

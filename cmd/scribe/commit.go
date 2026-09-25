@@ -143,6 +143,32 @@ func commitRun(root string) error {
 		}
 	}
 
+	// Reindex when this commit carried wiki content. `scribe commit` is
+	// the hourly sweep that picks up everything sync did not produce
+	// itself — an article written straight into the KB by an agent
+	// session or by hand. sync only reindexes on runs where IT extracted,
+	// absorbed, or pulled something, so without this those files were
+	// committed and then sat unsearchable until some unrelated sync run
+	// happened to fire. Gated on wikiN because raw/ and config-only
+	// commits are outside the qmd collection pattern, and incremental
+	// (~1s on a 200-article KB), so it is cheap enough for an hourly job.
+	//
+	// Runs while the sync/dream/capture locks are still held, so it
+	// cannot race a concurrent sync's own reindex. Deliberately does NOT
+	// rebuild _index.md/_backlinks.json: those are repo files, so writing
+	// them after the commit would dirty the tree for the next run, and
+	// sync already rebuilds them. qmd's index lives outside the repo.
+	if wikiN > 0 {
+		if err := reindexQMD(root, "commit"); err != nil {
+			// Degraded, not a bare log: the commit landed but its content
+			// stays unsearchable until some later run reindexes it, which
+			// is deferred work and must reach `scribe doctor`. Rule per
+			// 9c6d8bf ("a seam records degraded when a unit of work is
+			// lost, repeated, or deferred").
+			logPhaseFailure("commit", "qmd reindex", err)
+		}
+	}
+
 	logMsg("commit", "%s", msg)
 	return nil
 }
