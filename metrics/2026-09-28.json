@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-28T15:23:26Z",
+  "repository": {
+    "full_name": "louis-byers/scribe",
+    "default_branch": "main",
+    "stars": 0,
+    "forks": 0,
+    "open_issues": 0,
+    "open_pull_requests": 0
+  },
+  "traffic": {
+    "window_days": 14,
+    "clones": {
+      "available": false,
+      "count": null,
+      "uniques": null,
+      "days": []
+    },
+    "views": {
+      "available": false,
+      "count": null,
+      "uniques": null,
+      "days": []
+    }
+  },
+  "releases": []
+}
