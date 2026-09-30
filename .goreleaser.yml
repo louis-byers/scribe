@@ -149,12 +149,11 @@ brews:
     dependencies:
       - name: git
       - name: sqlite
-      # Tap-qualified name: goreleaser renders this as
-      #   depends_on "neilberkman/tap/ccrider"
-      # so `brew install oliver-kriska/scribe/scribe` auto-taps neilberkman's
-      # tap and pulls ccrider too. Honza's install hit a [FAIL] wall on
-      # ccrider before this was declared.
-      - name: neilberkman/tap/ccrider
+      # ccrider is not listed here: neilberkman/tap moved it from a formula
+      # to a cask. A formula cannot depend on a cask, and a leftover
+      # `depends_on "neilberkman/tap/ccrider"` fails to load once the formula
+      # is gone, which breaks `brew upgrade` for every installed formula.
+      # The caveats below tell users to install the cask.
     caveats: |
       Runtime dependencies not on Homebrew — install these separately:
         * claude     (Claude Code CLI)
@@ -166,7 +165,12 @@ brews:
         * jq, fzf    (optional)
                      brew install jq fzf
 
-      Already installed by brew as dependencies: git, sqlite, ccrider.
+      Already installed by brew as dependencies: git, sqlite.
+
+      Required, install separately (a cask, so brew cannot pull it in as a
+      dependency):
+        * ccrider    (session database for `scribe triage`)
+                     brew install --cask neilberkman/tap/ccrider
 
       After installing:
         scribe init --path ~/my-kb --bind

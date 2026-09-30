@@ -36,11 +36,9 @@ class Scribe < Formula
   depends_on "git"
   depends_on "sqlite"
 
-  # ccrider is the Claude-session recorder scribe reads via FTS5. It ships
-  # from neilberkman's tap; brew auto-taps on install.
-  depends_on "neilberkman/tap/ccrider"
-
-  # Not declared here (no brew formula exists): `claude` (install via
+  # Not declared here (no brew formula exists): `ccrider` (now a cask in
+  # neilberkman's tap, and a formula cannot depend on a cask: install with
+  # `brew install --cask neilberkman/tap/ccrider`), `claude` (install via
   # `curl -fsSL https://claude.ai/install.sh | bash` or npm), `qmd`
   # (semantic-search over the KB, install separately), `trafilatura`
   # (optional, pip/pipx), `jq` and `fzf` (optional).
