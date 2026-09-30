@@ -286,7 +286,7 @@ func (r *lintReport) warnf(class, format string, args ...any) {
 	if r.verbose {
 		msg := fmt.Sprintf(format, args...)
 		if hint := lintHints[class]; hint != "" {
-			msg += fmt.Sprintf(" (run `%s`)", hint)
+			msg += " (run `" + hint + "`)"
 		}
 		fmt.Fprintf(r.w, "  WARN %s\n", msg)
 		return
