@@ -59,7 +59,12 @@ class Scribe < Formula
         * jq, fzf    (optional)
                      brew install jq fzf
 
-      Already installed by brew as dependencies: git, sqlite, ccrider.
+      Already installed by brew as dependencies: git, sqlite.
+
+      Required, install separately (a cask, so brew cannot pull it in as a
+      dependency):
+        * ccrider    (session database for `scribe triage`)
+                     brew install --cask neilberkman/tap/ccrider
 
       After installing:
         scribe init --path ~/my-kb --bind
