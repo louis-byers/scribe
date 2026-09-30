@@ -2,6 +2,66 @@
 
 All notable changes to scribe are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/) (pre-1.0 — minor bumps may include breaking changes).
 
+## [0.5.4] — 2026-09-30
+
+The Homebrew formula loads again. ccrider's tap replaced its formula with a
+cask on 2026-09-13, and scribe's formula still declared a dependency on the
+formula that no longer exists. Also in this release: `scribe doctor` now fails
+on a job that keeps failing, and a daily job writes what it found to a file in
+the KB, so a broken schedule no longer waits for someone to run doctor by hand.
+
+### Fixed
+
+- **The formula no longer depends on ccrider** (#125 — thanks @josefrichter).
+  With the dependency pointing at a removed formula, Homebrew could not load
+  scribe's formula at all: `Error: No available formula with the name
+  "neilberkman/tap/ccrider"`. Homebrew loads the dependency graph of every
+  installed formula, so, as reported in #125, this broke `brew upgrade` for
+  everything on the machine, not only scribe. A formula cannot depend on a
+  cask, so ccrider is now a separate install, and the caveats, the README and
+  the `scribe doctor` fix hint all give the new command:
+
+  ```sh
+  brew install --cask neilberkman/tap/ccrider
+  ```
+
+  `brew update` pulls the corrected formula. If ccrider is still installed
+  from the old formula, move it to the cask with `brew uninstall --formula
+  ccrider && brew install --cask neilberkman/tap/ccrider`.
+
+### Added
+
+- **`scribe doctor` fails on a job that keeps failing.** A failed run used to
+  be a warning however often it repeated. Three consecutive `error` or
+  `degraded` runs of the same command are now a FAIL, shown with how long the
+  streak has lasted and the latest error. An `ok` run resets the streak; a
+  `skipped` run neither counts nor resets it. `sync --sessions` and
+  `dream --hot` have streaks of their own, so the default mode succeeding
+  cannot hide them. Streaks are read from the last 30 days of run records, so
+  a count is a lower bound, and an unresolved streak stays visible for those
+  30 days. A recovered error is still a warning inside `--error-window`.
+- **`scribe doctor --write-attention`** writes the FAIL checks and their fix
+  commands to `NEEDS-ATTENTION.md` in the KB root, and removes the file once
+  nothing fails. It only replaces or removes a file it generated itself, and
+  refuses to run with `--section`, because a partial run would drop the other
+  sections' failures. Plain `scribe doctor` stays read-only. The report is a
+  file, not a notification, and it cannot see a run that succeeds while making
+  no progress.
+- **A daily `doctor` job at 07:30** runs that report for every registered KB.
+  On macOS the first scheduled job the new version runs installs its
+  LaunchAgent. On Linux, rerun `scribe cron install` and add the new line to
+  your crontab.
+
+### Changed
+
+- **`scribe doctor` can now exit non-zero where it used to warn.** A script
+  that gates on doctor's exit code will see a failure once a job has failed
+  three times in a row.
+- **`--error-window` must be above zero and at most `720h`.** Values outside
+  that range used to be accepted and are now an error.
+- **An unreadable run file fails the errors section.** It used to be skipped,
+  which made a run log doctor could not read look like a clean one.
+
 ## [0.5.3] — 2026-09-16
 
 `brew install` and `brew upgrade` stop warning that `post_install` is
