@@ -35,6 +35,7 @@ Only the **user-level** files are scribe-managed. Amp also reads `~/.config/AGEN
 - Every 30 min: drain queued URLs into `raw/articles/`.
 - Every 4 hours: pull bookmark-links you texted yourself.
 - Daily 06:30: retry previously-unfetched link stubs (`capture-refetch`).
+- Daily 07:30: health report — `scribe doctor --write-attention` writes `NEEDS-ATTENTION.md` in the KB root while something is failing, and removes it once nothing is.
 - Daily 12:30: structural lint pass over the KB.
 - Sat 01:00: weekly frontmatter auto-repair (`lint-fix`).
 - Sat 01:30: conflict-resolution LLM pass over contradictions (`lint-resolve`).
@@ -316,6 +317,12 @@ actually landed rather than just that scribe printed it.
 The `scribe watch` job (fsnotify watcher for ccrider's SQLite DB) is not cron-friendly — run it under systemd-user, supervisord, or a persistent tmux/screen session. `scribe cron install` on Linux names the jobs that fall into this category so you know what still needs a supervisor.
 
 `scribe doctor` works the same on either OS: it reads `output/runs/*.jsonl` for freshness and recent errors, so you can verify scheduled jobs are firing regardless of how they're scheduled.
+
+Three consecutive error or degraded runs of the same command produce a **FAIL**, with the observed streak duration and latest error. Successful runs reset the streak; skipped runs neither increment nor reset it. Session sync and hot dream are tracked separately from their default modes. Streaks look back at most 30 days, so counts are observed lower bounds, not lifetime totals. Recovered errors remain warnings within `--error-window` (default 24h, maximum 720h); unresolved streaks remain visible throughout the 30-day scan.
+
+Plain `scribe doctor` remains read-only. `scribe doctor --write-attention` explicitly writes fail-level checks and remediation hints to `NEEDS-ATTENTION.md` in the KB root, removing the generated report when no FAIL checks remain. It refuses to replace a user-owned file and cannot be combined with `--section`. The report is a file-based signal, not a desktop notification; it does not detect successful runs that repeatedly make no progress.
+
+The default schedule includes this report at **07:30 local time** for every registered KB. On macOS an upgrade adds the job for you: the first scheduled job the new version runs installs the missing LaunchAgent (see [macOS — LaunchAgents](#macos--launchagents)). On Linux, rerun `scribe cron install` and add the new line to your crontab. Until the job is scheduled, invoke `scribe doctor --write-attention` manually.
 
 The same section also watches the *input* side. `scribe doctor --section freshness` compares ccrider's newest indexed session per coding agent and warns when one agent goes quiet while the others keep flowing — the shape of an importer that broke rather than a machine that was idle. It can't know whether you simply stopped using that agent, so the row says both; it only fires while another provider was indexed in the last 48h, ignores agents with fewer than 5 sessions, and stops nagging after 90 days (that's an abandoned tool, not a broken one).
 

@@ -5,11 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -20,15 +22,16 @@ import (
 // DoctorCmd is a read-only health check for a scribe KB checkout. It audits
 // dependencies, config, LaunchAgents, state files, and run freshness, then
 // prints each check with an exact remediation command. Doctor never mutates
-// anything: it diagnoses and points, the user runs the fixes.
+// anything unless --write-attention explicitly requests a KB report.
 //
 // Exit code is non-zero only on hard failures (FAIL). Freshness drift is a
 // warning, not a failure — cron might simply not have fired yet because the
 // Mac was asleep.
 type DoctorCmd struct {
-	JSON        bool          `help:"Emit structured JSON instead of text."`
-	Section     string        `help:"Run only one section: deps | config | cron | state | freshness | errors | convert | contradictions | stale | vault | localmode." enum:"deps,config,cron,state,freshness,errors,convert,contradictions,stale,vault,localmode," default:""`
-	ErrorWindow time.Duration `help:"How far back to scan run records for errors." default:"24h"`
+	WriteAttention bool          `help:"Write fail-level checks to NEEDS-ATTENTION.md; remove the generated report when no failures remain (requires all sections)."`
+	JSON           bool          `help:"Emit structured JSON instead of text."`
+	Section        string        `help:"Run only one section: deps | config | cron | state | freshness | errors | convert | contradictions | stale | vault | localmode." enum:"deps,config,cron,state,freshness,errors,convert,contradictions,stale,vault,localmode," default:""`
+	ErrorWindow    time.Duration `help:"How long to display recovered errors (max 720h); ongoing streaks use a 30-day scan." default:"24h"`
 }
 
 type checkStatus string
@@ -50,11 +53,16 @@ type check struct {
 	Fix     string      `json:"fix,omitempty"`
 }
 
-// ReadOnly marks doctor as a pure diagnostic — main() skips the
-// run-record append so a health check never mutates the KB it audits.
-func (c *DoctorCmd) ReadOnly() bool { return true }
+// ReadOnly suppresses run records for plain diagnostic invocations.
+func (c *DoctorCmd) ReadOnly() bool { return !c.WriteAttention }
 
 func (c *DoctorCmd) Run() error {
+	if c.WriteAttention && c.Section != "" {
+		return errors.New("--write-attention requires all sections (omit --section)")
+	}
+	if c.ErrorWindow <= 0 || c.ErrorWindow > 30*24*time.Hour {
+		return errors.New("--error-window must be greater than zero and at most 720h")
+	}
 	root, err := kbDir()
 	if err != nil {
 		return fmt.Errorf("not inside a scribe KB checkout: %w", err)
@@ -94,6 +102,11 @@ func (c *DoctorCmd) Run() error {
 		}
 	}
 
+	if c.WriteAttention {
+		if err := writeAttentionReport(root, all); err != nil {
+			return err
+		}
+	}
 	if c.JSON {
 		printChecksJSON(all, root)
 	} else {
@@ -1317,17 +1330,17 @@ func classifyFreshness(lastOk time.Time, now time.Time, gap time.Duration) (chec
 // loadRunErrors populates these so checkRecentErrors can surface the most
 // recent failure per command within the configured window.
 type runError struct {
-	When time.Time
-	Msg  string
-	Args []string
+	When  time.Time
+	Msg   string
+	Args  []string
+	Count int
+	First time.Time
 }
 
-// loadRunErrors scans output/runs/*.jsonl and returns the newest failing
-// record per command key within `since` — `status:"error"` (the command
-// itself failed) and `status:"degraded"` (it exited 0 with a phase failure
-// logged over; the message is synthesized from the recorded phase names). A command is keyed by its base command
-// name (e.g. "sync", "capture") so a cron running the same command every hour
-// folds into one error line, not dozens.
+// loadRunErrors reads daily files since the bounded cutoff supplied by the
+// caller. It retains the latest failure and current error/degraded streak per
+// command mode. Success resets the streak without hiding the recent error;
+// skipped runs do neither. Timestamp order matters, not physical append order.
 func loadRunErrors(root string, since time.Time) (map[string]runError, error) {
 	runsDir := filepath.Join(root, "output", "runs")
 	entries, err := os.ReadDir(runsDir)
@@ -1338,13 +1351,24 @@ func loadRunErrors(root string, since time.Time) (map[string]runError, error) {
 		return nil, err
 	}
 	result := map[string]runError{}
+	type event struct {
+		key    string
+		status string
+		error  runError
+	}
+	var events []event
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
+		// Daily filenames let us avoid opening historical logs. Include one
+		// extra date for records whose timestamp uses a different timezone.
+		if e.Name() < since.Add(-24*time.Hour).Format("2006-01-02")+".jsonl" {
+			continue
+		}
 		f, err := os.Open(filepath.Join(runsDir, e.Name()))
 		if err != nil {
-			continue
+			return nil, err
 		}
 		scanner := bufio.NewScanner(f)
 		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
@@ -1361,10 +1385,12 @@ func loadRunErrors(root string, since time.Time) (map[string]runError, error) {
 			if err := json.Unmarshal(scanner.Bytes(), &r); err != nil {
 				continue
 			}
-			if r.Status != "error" && r.Status != "degraded" {
+			if r.Status != "error" && r.Status != "degraded" && r.Status != "ok" {
 				continue
 			}
-			if r.Command == "" {
+			// A report's exit status mirrors other failures; counting it would
+			// make an alert perpetuate itself after the original job recovered.
+			if r.Command == "" || r.Command == "doctor" {
 				continue
 			}
 			if r.Status == "degraded" {
@@ -1386,16 +1412,46 @@ func loadRunErrors(root string, since time.Time) (map[string]runError, error) {
 			if err != nil || ts.Before(since) {
 				continue
 			}
-			if prev, ok := result[r.Command]; !ok || ts.After(prev.When) {
-				result[r.Command] = runError{When: ts, Msg: r.Error, Args: r.Args}
-			}
+			events = append(events, event{runErrorKey(r.Command, r.Args), r.Status, runError{When: ts, Msg: r.Error, Args: r.Args}})
 		}
 		if err := scanner.Err(); err != nil {
-			logMsg("doctor", "read %s truncated: %v", e.Name(), err)
+			_ = f.Close()
+			return nil, fmt.Errorf("read %s: %w", e.Name(), err)
 		}
 		_ = f.Close()
 	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].error.When.Before(events[j].error.When) })
+	for _, ev := range events {
+		prev := result[ev.key]
+		if ev.status == "ok" {
+			if !prev.When.IsZero() {
+				prev.Count = 0
+				prev.First = time.Time{}
+				result[ev.key] = prev
+			}
+			continue
+		}
+		next := ev.error
+		next.Count = prev.Count + 1
+		next.First = prev.First
+		if prev.Count == 0 {
+			next.First = next.When
+		}
+		result[ev.key] = next
+	}
 	return result, nil
+}
+
+// runErrorKey gives the modes freshness tracks on their own ("sync
+// --sessions", "dream --hot") a streak separate from the command's default
+// mode, so one mode succeeding cannot reset the other's failures.
+func runErrorKey(command string, args []string) string {
+	for _, spec := range freshnessSpecs {
+		if spec.Command == command && spec.ArgFlag != "" && slices.Contains(args, spec.ArgFlag) {
+			return command + " " + spec.ArgFlag
+		}
+	}
+	return command
 }
 
 // checkRecentErrors reports the newest error-per-command inside the window.
@@ -1404,7 +1460,7 @@ func loadRunErrors(root string, since time.Time) (map[string]runError, error) {
 // triage run over a whole day) still get surfaced instead of being masked by
 // the latest successful run, which was the original doctor blind spot.
 func checkRecentErrors(root string, now time.Time, window time.Duration) []check {
-	since := now.Add(-window)
+	since := now.Add(-30 * 24 * time.Hour)
 	errs, err := loadRunErrors(root, since)
 	if err != nil {
 		return []check{{
@@ -1428,15 +1484,63 @@ func checkRecentErrors(root string, now time.Time, window time.Duration) []check
 	var out []check
 	for _, k := range keys {
 		e := errs[k]
+		if e.Count == 0 && e.When.Before(now.Add(-window)) {
+			continue
+		}
 		age := shortDuration(now.Sub(e.When))
 		detail := fmt.Sprintf("last error %s ago: %s", age, truncateError(e.Msg))
+		status := statusWarn
+		if e.Count > 0 {
+			detail = fmt.Sprintf("failing for %s (%d consecutive runs observed in last 30d) — last: %s", shortDuration(now.Sub(e.First)), e.Count, truncateError(e.Msg))
+		}
+		if e.Count >= 3 {
+			status = statusFail
+		}
 		out = append(out, check{
-			Section: "errors", Name: k, Status: statusWarn,
+			Section: "errors", Name: k, Status: status,
 			Detail: detail,
 			Fix:    fixHintForError(k, e.Msg),
 		})
 	}
+	if len(out) == 0 {
+		out = append(out, check{Section: "errors", Name: "recent runs", Status: statusOK, Detail: "no recent or ongoing errors"})
+	}
 	return out
+}
+
+const attentionMarker = "<!-- scribe:generated-attention -->\n"
+
+// writeAttentionReport owns only its generated file, never a user's document.
+// Stable content avoids hourly auto-commits when the diagnosis has not changed.
+func writeAttentionReport(root string, checks []check) error {
+	path := filepath.Join(root, "NEEDS-ATTENTION.md")
+	old, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil && !strings.HasPrefix(string(old), attentionMarker) {
+		return fmt.Errorf("refusing to overwrite or remove user-owned %s", path)
+	}
+	var body strings.Builder
+	body.WriteString(attentionMarker + "# Scribe needs attention\n\nGenerated by `scribe doctor --write-attention`. Run `scribe doctor` for a fresh diagnosis.\n")
+	fails := 0
+	for _, ck := range checks {
+		if ck.Status != statusFail {
+			continue
+		}
+		fails++
+		fmt.Fprintf(&body, "\n## %s: %s\n\n%s\n\nRemediation: %s\n", ck.Section, ck.Name, ck.Detail, ck.Fix)
+	}
+	if fails == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if body.String() == string(old) {
+		return nil
+	}
+	return writeFileAtomic(path, []byte(body.String()), 0o600)
 }
 
 // fixHintForError turns a known error signature into a runnable command the

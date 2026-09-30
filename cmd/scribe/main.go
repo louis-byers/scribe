@@ -98,7 +98,7 @@ type CLI struct {
 	// Core — the pipeline and its health.
 	Sync   SyncCmd   `cmd:"" group:"core" help:"Discover, extract, mine sessions, absorb, reindex, commit."`
 	Status StatusCmd `cmd:"" group:"core" help:"One-shot KB scoreboard: raw by density, absorb/contextualize progress, last sync, Ollama health."`
-	Doctor DoctorCmd `cmd:"" group:"core" help:"Health check (deps, config, cron, state, run freshness). Read-only."`
+	Doctor DoctorCmd `cmd:"" group:"core" help:"Health check (deps, config, cron, state, run freshness). Read-only unless --write-attention is set."`
 	Commit CommitCmd `cmd:"" group:"core" help:"Auto-commit and push pending KB changes."`
 	Watch  WatchCmd  `cmd:"" group:"core" help:"Watch ccrider DB for new sessions (long-running, launchd-friendly)."`
 

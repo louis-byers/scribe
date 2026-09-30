@@ -71,6 +71,13 @@ func scribeJobs(binary string) []cronJob {
 	each := func(sub string) string { return shellQuote(binary) + " each -- " + sub }
 	return []cronJob{
 		{
+			Name:     "doctor",
+			Desc:     "Daily health report to NEEDS-ATTENTION.md at 07:30",
+			Command:  each("doctor --write-attention"),
+			LogFile:  filepath.Join(logDir, "scribe-doctor.log"),
+			Schedule: schedSpec{Calendar: []calTime{{Hour: 7, Minute: 30, Weekday: -1}}},
+		},
+		{
 			Name:     "auto-commit",
 			Desc:     "Hourly KB auto-commit",
 			Command:  each("commit"),

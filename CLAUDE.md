@@ -17,7 +17,7 @@ cmd/scribe/          Single Go main + every subcommand in one package
   capture.go         iMessage chat.db reader + 3-tier URL fetcher
   dream.go           Weekly memory consolidation driver
   lint.go            Frontmatter + size + orphan checks
-  doctor.go          Read-only health audit
+  doctor.go          Health audit; read-only unless --write-attention (NEEDS-ATTENTION.md report)
   link.go            Orphan linker (See Also injection)
   cron.go            macOS LaunchAgent install/status/uninstall
   agent_refresh.go   upgrade self-heal: the first scheduled job of a new version refreshes stale LaunchAgents
