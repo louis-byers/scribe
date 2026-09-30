@@ -315,7 +315,7 @@ Yes. A small team points every machine at one git-backed KB. A trust layer treat
 You audit it the way you audit code, because it's shaped like code: markdown in git, diffable, deletable. Articles carry their provenance in frontmatter — the session or commit they came from — and the raw source stays verbatim under `raw/` next to the wiki page written from it. Wrongness gets mechanisms, not hope: `scribe contradictions list` surfaces articles that disagree with each other, `scribe stale list` tracks what has decayed, `scribe lint` enforces structure and frontmatter, and the weekly Dream cycle merges near-duplicates and prunes stubs instead of letting them pile up. When an article is wrong, `git rm` it — it's a file, not a row in a vector store.
 
 **What else does scribe need installed?**
-`git`, `sqlite`, and `ccrider` — the Homebrew formula pulls all three in for you. Search needs `qmd` (`npm i -g @tobilu/qmd`), and the dependency check still expects the Claude CLI even on the Ollama profile, where it's a check and not a spend. Local mode adds Ollama itself. `scribe doctor` verifies the whole set and names whatever is missing.
+`git`, `sqlite`, and `ccrider`. The Homebrew formula pulls in the first two; `ccrider` ships as a cask, so it's one more command (`brew install --cask neilberkman/tap/ccrider`). Search needs `qmd` (`npm i -g @tobilu/qmd`), and the dependency check still expects the Claude CLI even on the Ollama profile, where it's a check and not a spend. Local mode adds Ollama itself. `scribe doctor` verifies the whole set and names whatever is missing.
 
 **Does scribe work on Linux?**
 Yes. macOS gets LaunchAgents via `scribe cron install`; Linux gets paste-ready crontab lines from the same command. The fsnotify watcher (`scribe watch`) is not cron-friendly on either OS — run it under launchd `KeepAlive` on macOS or systemd-user on Linux. The iMessage capture step is macOS-only because it reads `chat.db`; everything else is portable. macOS release binaries are Developer ID signed and notarized, and `scribe fda` verifies `chat.db` access in the same launchd context scheduled capture uses.
@@ -324,7 +324,7 @@ Yes. macOS gets LaunchAgents via `scribe cron install`; Linux gets paste-ready c
 In a plain git repo of markdown files at whatever path you pass to `scribe init`. Push it to your own GitHub, Gitea, or Forgejo — there's no SaaS account, no cloud sync, no vendor lock-in. Open it in Obsidian, VS Code, vim, or mdbook.
 
 **What does the cron schedule look like?**
-Hourly KB auto-commit, every 2 hours scan git repos for new decisions and patterns, three times a day mine coding-agent sessions via ccrider — plus direct Codex CLI rollouts when opted in — every 30 minutes drain queued URLs, every 4 hours pull self-iMessaged links, hourly pull of any configured bookmark integration (a no-op until you set one up), a weekly Dream cycle on Sunday with a daily hot-domain pass in between, plus a continuous fsnotify watcher on the ccrider DB for near-real-time session extraction.
+Hourly KB auto-commit, every 2 hours scan git repos for new decisions and patterns, three times a day mine coding-agent sessions via ccrider — plus direct Codex CLI rollouts when opted in — every 30 minutes drain queued URLs, every 4 hours pull self-iMessaged links, hourly pull of any configured bookmark integration (a no-op until you set one up), a weekly Dream cycle on Sunday with a daily hot-domain pass in between, a daily health report that writes any failing check to `NEEDS-ATTENTION.md` in the KB and removes the file once nothing fails, plus a continuous fsnotify watcher on the ccrider DB for near-real-time session extraction.
 
 **Is scribe an alternative to RAG for a personal knowledge base?**
 Yes. scribe is a compiled knowledge base, not a retrieval pipeline — it writes curated markdown articles into a git repo instead of chunking documents into a vector database, so there are no embeddings to maintain and no vector DB to run. Most lookups are plain-text BM25 matches, and the parts an agent reads up front — the digest and the index — stay small enough to read whole.
@@ -348,4 +348,4 @@ Yes to both. The knowledge base is indexed by `qmd` for BM25 keyword search and 
 
 **License:** MIT
 **Source:** <https://github.com/oliver-kriska/scribe>
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-30

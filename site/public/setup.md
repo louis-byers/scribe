@@ -83,10 +83,11 @@ brew tap oliver-kriska/scribe
 brew install oliver-kriska/scribe/scribe
 ```
 
-The formula installs `git`, `sqlite`, and `ccrider`. Install the remaining
-required tools:
+The formula installs `git` and `sqlite`. `ccrider` ships as a cask, which a
+formula cannot depend on, so install it with the remaining required tools:
 
 ```sh
+brew install --cask neilberkman/tap/ccrider
 curl -fsSL https://claude.ai/install.sh | bash
 npm install -g @tobilu/qmd
 ```

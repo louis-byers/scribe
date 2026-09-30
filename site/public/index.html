@@ -31,7 +31,7 @@
 <meta property="og:image:height" content="630" />
 <meta property="og:image:alt" content="scribe — your knowledge base, written by your tools. Over 7,400 docs. $0/sync. ~70s." />
 <meta property="og:locale" content="en_US" />
-<meta property="article:modified_time" content="2026-09-02T00:00:00Z" />
+<meta property="article:modified_time" content="2026-09-30T00:00:00Z" />
 
 <!-- Twitter / X -->
 <meta name="twitter:card" content="summary_large_image" />
@@ -159,7 +159,7 @@
       "name": "What else does scribe need installed?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "git, sqlite, and ccrider — the Homebrew formula pulls all three in for you. Search needs qmd (npm i -g @tobilu/qmd), and the dependency check still expects the Claude CLI even on the Ollama profile, where it is a check and not a spend. Local mode adds Ollama itself. scribe doctor verifies the whole set and names whatever is missing."
+        "text": "git, sqlite, and ccrider. The Homebrew formula pulls in the first two; ccrider ships as a cask, so it is one more command (brew install --cask neilberkman/tap/ccrider). Search needs qmd (npm i -g @tobilu/qmd), and the dependency check still expects the Claude CLI even on the Ollama profile, where it is a check and not a spend. Local mode adds Ollama itself. scribe doctor verifies the whole set and names whatever is missing."
       }
     },
     {
@@ -199,7 +199,7 @@
       "name": "What does the cron schedule look like?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Hourly KB auto-commit, every 2 hours scan git repos for new decisions and patterns, 3×/day mine coding-agent sessions via ccrider (plus direct Codex CLI rollouts when opted in), every 30 minutes drain queued URLs, every 4 hours pull self-iMessaged links, hourly pull of any configured bookmark integration (a no-op until you set one up), a weekly Dream cycle on Sunday at 02:00 for memory consolidation with a lighter hot-domain pass daily in between, plus a continuous fsnotify watcher on the ccrider DB for near-real-time session extraction."
+        "text": "Hourly KB auto-commit, every 2 hours scan git repos for new decisions and patterns, 3×/day mine coding-agent sessions via ccrider (plus direct Codex CLI rollouts when opted in), every 30 minutes drain queued URLs, every 4 hours pull self-iMessaged links, hourly pull of any configured bookmark integration (a no-op until you set one up), a weekly Dream cycle on Sunday at 02:00 for memory consolidation with a lighter hot-domain pass daily in between, a daily health report that writes any failing check to NEEDS-ATTENTION.md in the KB and removes the file once nothing fails, plus a continuous fsnotify watcher on the ccrider DB for near-real-time session extraction."
       }
     },
     {
@@ -276,7 +276,7 @@
   "url": "https://getscribe.dev/",
   "image": "https://getscribe.dev/og-v4.png",
   "datePublished": "2026-05-14T00:00:00+02:00",
-  "dateModified": "2026-09-02T00:00:00+02:00",
+  "dateModified": "2026-09-30T00:00:00+02:00",
   "inLanguage": "en",
   "author": {
     "@type": "Person",
@@ -3586,7 +3586,7 @@ scribe doctor <span class="flag">--section</span> localmode
 
       <details class="q">
         <summary>What else does scribe need installed?</summary>
-        <div class="answer"><code>git</code>, <code>sqlite</code>, and <code>ccrider</code> &mdash; the Homebrew formula pulls all three in for you. Search needs <code>qmd</code> (<code>npm i -g @tobilu/qmd</code>), and the dependency check still expects the Claude CLI even on the Ollama profile, where it&rsquo;s a check and not a spend. Local mode adds Ollama itself. <code>scribe doctor</code> verifies the whole set and names whatever is missing.</div>
+        <div class="answer"><code>git</code>, <code>sqlite</code>, and <code>ccrider</code>. The Homebrew formula pulls in the first two; <code>ccrider</code> ships as a cask, so it&rsquo;s one more command (<code>brew install --cask neilberkman/tap/ccrider</code>). Search needs <code>qmd</code> (<code>npm i -g @tobilu/qmd</code>), and the dependency check still expects the Claude CLI even on the Ollama profile, where it&rsquo;s a check and not a spend. Local mode adds Ollama itself. <code>scribe doctor</code> verifies the whole set and names whatever is missing.</div>
       </details>
 
       <details class="q">
@@ -3611,7 +3611,7 @@ scribe doctor <span class="flag">--section</span> localmode
 
       <details class="q">
         <summary>What does the cron schedule look like?</summary>
-        <div class="answer">Hourly KB auto-commit, every 2 hours scan git repos for new decisions and patterns, 3×/day mine coding-agent sessions via ccrider (plus direct Codex CLI rollouts when opted in), every 30 minutes drain queued URLs, every 4 hours pull self-iMessaged links, hourly pull of any configured bookmark integration (a no-op until you set one up), a weekly Dream cycle on Sunday at 02:00 for memory consolidation with a lighter hot-domain pass daily in between, plus a continuous fsnotify watcher on the ccrider DB for near-real-time session extraction.</div>
+        <div class="answer">Hourly KB auto-commit, every 2 hours scan git repos for new decisions and patterns, 3×/day mine coding-agent sessions via ccrider (plus direct Codex CLI rollouts when opted in), every 30 minutes drain queued URLs, every 4 hours pull self-iMessaged links, hourly pull of any configured bookmark integration (a no-op until you set one up), a weekly Dream cycle on Sunday at 02:00 for memory consolidation with a lighter hot-domain pass daily in between, a daily health report that writes any failing check to NEEDS-ATTENTION.md in the KB and removes the file once nothing fails, plus a continuous fsnotify watcher on the ccrider DB for near-real-time session extraction.</div>
       </details>
 
       <details class="q">
@@ -3864,7 +3864,7 @@ scribe doctor <span class="flag">--section</span> localmode
       </div>
     </div>
     <div class="footer__bottom">
-      <span>MIT · last updated 2026-09-02</span>
+      <span>MIT · last updated 2026-09-30</span>
       <span>github.com/oliver-kriska/scribe</span>
     </div>
   </div>
