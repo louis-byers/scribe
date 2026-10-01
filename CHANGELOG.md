@@ -12,11 +12,12 @@ the KB, so a broken schedule no longer waits for someone to run doctor by hand.
 
 ### Fixed
 
-- **The formula no longer depends on ccrider** (#125 — thanks @josefrichter).
+- **The formula no longer depends on ccrider** (#118, #119, #125 — thanks
+  @louis-byers, who reported and fixed it first, and @josefrichter).
   With the dependency pointing at a removed formula, Homebrew could not load
   scribe's formula at all: `Error: No available formula with the name
   "neilberkman/tap/ccrider"`. Homebrew loads the dependency graph of every
-  installed formula, so, as reported in #125, this broke `brew upgrade` for
+  installed formula, so, as reported in #118, this broke `brew upgrade` for
   everything on the machine, not only scribe. A formula cannot depend on a
   cask, so ccrider is now a separate install, and the caveats, the README and
   the `scribe doctor` fix hint all give the new command:

@@ -159,8 +159,9 @@ make install    # builds with -tags sqlite_fts5 to ./bin/scribe, then deploys to
 | `jq`, `fzf`   | no       | manual triage / preview              | `brew install jq fzf` / apt                     |
 
 > Installing scribe via Homebrew (`brew install oliver-kriska/scribe/scribe`)
-> also pulls `git`, `sqlite`, and `ccrider` automatically. `claude`, `qmd`,
-> and the optionals still need their own installs.
+> also pulls `git` and `sqlite` automatically. `ccrider` (a cask, which a
+> formula cannot depend on), `claude`, `qmd`, and the optionals still need
+> their own installs.
 
 ---
 
