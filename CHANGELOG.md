@@ -2,6 +2,74 @@
 
 All notable changes to scribe are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/) (pre-1.0 — minor bumps may include breaking changes).
 
+## [0.5.5] — 2026-10-01
+
+Models no longer choose article dates. A model writing a page could put any
+well-formed date in `created` or `updated`, and lint only checked the format.
+On the same session, two local models wrote dates two years in the past, and
+one wrote a date five weeks in the future (#120). Also in this release:
+sessions from a project checked out directly under a mount root get mined
+again, `scribe status` stops counting sessions the miner will never take, and
+the agent instructions use qmd's MCP server first.
+
+### Fixed
+
+- **Model-written pages get today's date** (#120, thanks @louis-byers, who
+  measured the problem and showed why the obvious fix was wrong). Six jobs
+  turn the model's JSON actions into pages: session mining, repo
+  extraction, `deep`, `assess`, Codex mining and `dream`. Every page they
+  create now gets today for `created` and `updated`, whatever the model
+  wrote. Their prompts already asked for today, and their sources (a
+  transcript, a repo, the KB itself) have no article date worth keeping. A
+  page that replaces an existing file keeps that file's `created`. Every
+  value replaced this way is logged.
+- **No write path accepts a future date.** Every sanitized write, absorb
+  included, sets a future `created` or `updated` to today. This applies both
+  to page content and to `update_frontmatter` actions. Absorb keeps past
+  dates, because a drop file or a saved article can carry a real earlier
+  date, and nothing can tell that apart from an invented one.
+- **Sessions from a project directly under a mount root get mined again**
+  (#109, thanks @louis-byers). Discovery rejects paths with fewer than four
+  segments, so that it never auto-enrolls something as broad as
+  `/Volumes/Vol`. Mining applied the same check, so a project at
+  `/Volumes/Vol/repo` could be approved and extracted while every session
+  run in it was silently dropped. A project that is already enrolled, and
+  its worktrees, now skip that check. The TCC check, the inside-a-KB check
+  and `ignored_paths` still apply.
+- **`scribe status` counts a session as pending only if the miner would take
+  it** (#111, thanks @louis-byers). It used to count every session under an
+  approved project, including ones the miner always refuses: sessions run
+  inside a KB checkout, out of scope, or too thin to mine. Those stayed
+  "pending" forever. On the maintainer's KB the count went from 1,247 to 541.
+  status looks up ccrider stats only for sessions that pass the cheaper
+  checks, so it stays fast on a large ccrider DB, and so does the status
+  summary at the end of `doctor`.
+
+### Changed
+
+- **Agents use qmd's MCP server first** (#95, thanks @josefrichter). The
+  Claude Code, Codex and Amp instruction blocks and the `scribe-kb` skill now
+  tell the agent to find the qmd MCP `query` tool first, under whatever name
+  the qmd install gave it. Shell `qmd query` is the fallback. `qmd search`
+  stays the exact-keyword path. In Codex, the `qmd query` fallback has to run
+  outside the sandbox, because the sandbox can't load qmd's local models. To
+  get the new text, run `scribe init` in your KB and accept the block
+  refresh, and run `scribe skill install` to update the skill.
+- **`scribe lint` and `scribe validate` check date values, not just their
+  format.** A `created` or `updated` later than tomorrow (UTC) is an error,
+  and so is an `updated` that comes before `created`. `lint --fix` sets a
+  future date to today and leaves past dates alone. Lint's "To fix, run:"
+  footer now points at `lint --fix` for future dates. Nothing fixes an
+  inverted pair automatically, because nothing can tell which of the two
+  dates is wrong. On a KB with such dates, `lint` now fails where it used
+  to pass.
+
+### Internal
+
+- `go-sqlite3` 1.14.52, plus CI action bumps (`codeql-action` 4.38.2,
+  `wrangler-action` 4.1.3, `sbom-action`) via Dependabot (#101, #107,
+  #121–#124).
+
 ## [0.5.4] — 2026-09-30
 
 The Homebrew formula loads again. ccrider's tap replaced its formula with a

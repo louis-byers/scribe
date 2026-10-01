@@ -16,14 +16,16 @@ Your KB is a private git repo you own. `scribe init` scaffolds it from embedded 
 
 Excerpt from the block `scribe init` writes (`{{.KBName}}` gets replaced with your KB name, `{{.OwnerName}}` with yours):
 
-> **How to search:** Use the `mcp__plugin_qmd_qmd__query` tool when available (preferred), or `qmd query "<natural language question>"` via Bash. Both work from any directory — qmd collections use absolute paths, so **never `cd` into {{.KBDir}} first**.
+> **How to search:** For natural-language semantic retrieval, prefer the qmd MCP `query` tool. Its fully qualified name depends on how qmd was installed (common names include `mcp__plugin_qmd_qmd__query` and `mcp__qmd__query`), so discover the available qmd query tool instead of assuming one fixed name or inferring absence from an initial tool summary. […]
+>
+> Use Bash `qmd search "<keywords>"` for exact-term, no-model retrieval. If no qmd MCP query tool is available and semantic retrieval is necessary, fall back to `qmd query "<natural language question>"` via Bash. All qmd commands work from any directory because collections use absolute paths, so **never `cd` into {{.KBDir}} first**.
 >
 > **When to search proactively — don't wait for {{.OwnerName}} to ask.** The KB is only valuable if it's consulted before decisions, not after.
 > - Before recommending a library, tool, or framework — query `"<name> evaluation verdict"`. Don't suggest something already rejected.
 > - Before proposing an architectural choice — query `"<problem> decision reasoning"`. Cite the prior decision instead of reinventing it.
 > - When {{.OwnerName}} references past work ("have I done this before", "didn't we decide on X", "which tool did I use for X") — these are direct instructions to search. Don't answer from memory; search.
 
-That single prompt turns your KB into working memory for every agent session. Without it, an LLM-written KB is just a write-only archive. The full block (including the drop-file protocol for contributing from other projects) is in [`cmd/scribe/templates/claude-md-kb.md`](cmd/scribe/templates/claude-md-kb.md); the Codex variant (shell `qmd` instead of the MCP tool) is [`cmd/scribe/templates/codex-agents-md.md`](cmd/scribe/templates/codex-agents-md.md); the [Amp variant](cmd/scribe/templates/amp-agents-md.md) adds one warning the others don't need — Amp threads live server-side and reach ccrider only through its opt-in importer, so an Amp session can't count on being mined and drop files carry the load. Skip any of the three with `scribe init --no-claude-md` / `--no-codex-md` / `--no-amp-md`.
+That single prompt turns your KB into working memory for every agent session. Without it, an LLM-written KB is just a write-only archive. The full block (including the drop-file protocol for contributing from other projects) is in [`cmd/scribe/templates/claude-md-kb.md`](cmd/scribe/templates/claude-md-kb.md); the Codex variant (same MCP-first order; its shell `qmd query` fallback runs outside the sandbox, which can't load qmd's local models) is [`cmd/scribe/templates/codex-agents-md.md`](cmd/scribe/templates/codex-agents-md.md); the [Amp variant](cmd/scribe/templates/amp-agents-md.md) adds one warning the others don't need — Amp threads live server-side and reach ccrider only through its opt-in importer, so an Amp session can't count on being mined and drop files carry the load. Skip any of the three with `scribe init --no-claude-md` / `--no-codex-md` / `--no-amp-md`.
 
 Only the **user-level** files are scribe-managed. Amp also reads `~/.config/AGENTS.md` and any `AGENTS.md` in your project tree; scribe deliberately writes neither, so the block can't leak into a repo or fight with a generic config you keep for other tools.
 
@@ -806,7 +808,7 @@ scribe status       # one-shot KB scoreboard (raw/wiki/backlog) — splits held-
 scribe projects {list,approve,ignore,review}  # approve/ignore discovered projects before they enter the pipeline
 scribe dream        # weekly memory consolidation (4-phase)
 scribe dream --hot          # daily mini consolidation of the busiest domain (auto-gates)
-scribe lint         # frontmatter + size + orphan checks (grouped by class; closes with a "To fix, run:" footer; -v per-file, -q errors-only)
+scribe lint         # frontmatter + size + orphan checks, incl. future or updated-before-created dates (grouped by class; closes with a "To fix, run:" footer; -v per-file, -q errors-only)
 scribe lint --contradictions # LLM pass for factual disagreements across articles
 scribe link         # link orphan articles to contextual hosts via See Also sections
 scribe watch        # long-running fsnotify watcher on ccrider DB (near-real-time session extraction)
