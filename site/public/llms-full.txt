@@ -199,7 +199,7 @@ Built for developers who use AI tools every day. The expensive half of the job i
 qmd query "how did I solve the oban idempotency bug last quarter"
 ```
 
-`qmd` indexes the KB for BM25 keyword search and semantic vector search, and works from any terminal in any directory — no reindex per tool, no format conversion. From inside Claude Code, the MCP tool `mcp__plugin_qmd_qmd__query` runs the same query; from Codex, shell `qmd query` does. Because it's plain markdown, you can also `grep` it.
+`qmd` indexes the KB for BM25 keyword search and semantic vector search, and works from any terminal in any directory — no reindex per tool, no format conversion. From inside Claude Code or Codex, the qmd MCP tool (`mcp__plugin_qmd_qmd__query` under the Claude Code plugin) runs the same query, with shell `qmd query` as the fallback. Because it's plain markdown, you can also `grep` it.
 
 ## The command surface
 
@@ -348,4 +348,4 @@ Yes to both. The knowledge base is indexed by `qmd` for BM25 keyword search and 
 
 **License:** MIT
 **Source:** <https://github.com/oliver-kriska/scribe>
-**Last updated:** 2026-09-30
+**Last updated:** 2026-10-01
