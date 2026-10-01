@@ -496,6 +496,10 @@ func TestClassifyFrontmatterError(t *testing.T) {
 		{"tags should be a list, got: string", errKindFixable},
 		{"invalid type: 'foo' (expected: ...)", errKindFixable},
 		{"created not in YYYY-MM-DD format: '2026/1/1'", errKindFixable},
+		{"updated is in the future: '2099-01-01'", errKindFixable},
+		// --fix can't tell which of the two dates is wrong, so it leaves the
+		// pair for a person.
+		{"updated '2025-01-31' is before created '2025-02-01'", errKindOther},
 		{"missing required fields: domain, tags", errKindFixable},
 		{"missing required fields: title", errKindNeedsTitle},
 		{"missing required fields: title, type", errKindNeedsTitle},

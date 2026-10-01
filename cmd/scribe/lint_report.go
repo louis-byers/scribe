@@ -119,7 +119,8 @@ func classifyFrontmatterError(msg string) errKind {
 		strings.Contains(msg, "closing frontmatter fence must be exactly"),
 		strings.Contains(msg, "invalid type"),
 		strings.Contains(msg, "should be a list"),
-		strings.Contains(msg, "not in YYYY-MM-DD format"):
+		strings.Contains(msg, "not in YYYY-MM-DD format"),
+		strings.Contains(msg, "is in the future"):
 		return errKindFixable
 	default:
 		return errKindOther

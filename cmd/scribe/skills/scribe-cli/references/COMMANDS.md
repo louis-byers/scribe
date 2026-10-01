@@ -49,7 +49,7 @@ lock shared with cron — run one at a time, never backgrounded.
 | Command | What it does |
 |---|---|
 | `scribe lint` | **read-only** — frontmatter + size + orphan checks, grouped by class; ends with a "To fix, run:" footer. `-v` per-file, `-q` errors-only |
-| `scribe lint --fix` | Repair mechanical frontmatter (duplicate keys, list/date formatting, invalid domains, defaults, `*.md.md`) |
+| `scribe lint --fix` | Repair mechanical frontmatter (duplicate keys, list/date formatting, future dates, invalid domains, defaults, `*.md.md`) |
 | `scribe lint --contradictions` | LLM pass for factual disagreements across articles |
 | `scribe link` | Link orphan articles to contextual hosts via See Also sections |
 | `scribe tier {compute,list,set,write}` | `index_tier` hint (stub\|brief\|standard\|deep\|reference); `tier write --missing-only` backfills |
