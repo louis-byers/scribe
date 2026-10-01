@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestValidateFile exercises the frontmatter validator that runs via
@@ -226,5 +227,36 @@ func TestValidateFile_TagsMustBeList(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected tags-must-be-list error, got: %v", errs)
+	}
+}
+
+// TestValidateFile_ImplausibleDates pins the value checks #120 added on top
+// of the format check: a future date and an updated-before-created pair are
+// errors, while tomorrow (a writer ahead of UTC) and past dates still pass.
+func TestValidateFile_ImplausibleDates(t *testing.T) {
+	day := func(d int) string { return time.Now().UTC().AddDate(0, 0, d).Format(time.DateOnly) }
+	withDates := func(created, updated string) string {
+		s := strings.Replace(goodFrontmatter, "created: 2026-04-10", "created: "+created, 1)
+		return strings.Replace(s, "updated: 2026-04-10", "updated: "+updated, 1)
+	}
+	for _, tc := range []struct {
+		name, created, updated, want string
+	}{
+		{"past", "2024-07-15", "2024-07-15", ""},
+		{"tomorrow", day(1), day(1), ""},
+		{"future created", day(30), day(30), "created is in the future"},
+		{"future updated", "2024-07-15", day(30), "updated is in the future"},
+		{"updated before created", "2025-02-01", "2025-01-31", "updated '2025-01-31' is before created '2025-02-01'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validateFile("", writeTmp(t, "d.md", withDates(tc.created, tc.updated)))
+			got := strings.Join(errs, "; ")
+			if tc.want == "" && len(errs) != 0 {
+				t.Errorf("unexpected errors: %v", errs)
+			}
+			if tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Errorf("want %q, got: %v", tc.want, errs)
+			}
+		})
 	}
 }

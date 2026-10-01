@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -232,6 +233,17 @@ type ApplyOptions struct {
 	// single session ref. Other consumers see full source content and may
 	// legitimately set provenance, so they leave this off.
 	ProtectProvenance bool
+	// StampDates: the caller's prompt pins created/updated to today, and
+	// its sources carry no article dates of their own (a session
+	// transcript, a repo, the KB itself), so any other value the model
+	// writes on a create is invented, not provenance. #120 measured two
+	// local models writing dates two years back and five weeks ahead for
+	// the same session, both well-formed. A create gets created = updated
+	// = today; one that replaces an existing file keeps that file's
+	// created. Absorb leaves this off: a drop file or a saved article can
+	// carry a real earlier date, which no value check can tell from an
+	// invented one.
+	StampDates bool
 	// ValidFactIDs: the set of fact IDs the facts pass produced for the
 	// source article. Brackets not in this set are stripped. Only
 	// consulted when SanitizeContent is true. nil ⇒ strip ALL [cNN-fM]
@@ -368,7 +380,7 @@ func filterProvenanceKeys(m map[string]any) (kept map[string]any, dropped []stri
 // collision. It joins this policy too. Naming it here keeps the next
 // consumer from re-introducing the default.
 func entityWriterApplyOptions() ApplyOptions {
-	return ApplyOptions{SanitizeContent: true, ProtectProvenance: true}
+	return ApplyOptions{SanitizeContent: true, ProtectProvenance: true, StampDates: true}
 }
 
 func applyWikiActions(root string, env WikiActionEnvelope, opts ApplyOptions) (ApplyResult, error) {
@@ -504,6 +516,9 @@ func applyCreateAction(res *ApplyResult, i int, abs string, a WikiAction, opts A
 			return
 		}
 	}
+	if opts.StampDates {
+		a.Content = stampCreateDates(i, abs, a, time.Now().UTC().Format(time.DateOnly))
+	}
 	if opts.DryRun {
 		res.Skipped = append(res.Skipped, a.Path)
 		return
@@ -513,6 +528,40 @@ func applyCreateAction(res *ApplyResult, i int, abs string, a WikiAction, opts A
 		return
 	}
 	res.Applied = append(res.Applied, a.Path)
+}
+
+// stampCreateDates applies ApplyOptions.StampDates to one create:
+// created and updated become today, except that a create replacing an
+// existing file keeps that file's created. Each value it replaces is
+// logged, so a model that keeps inventing dates shows up in the sync log.
+func stampCreateDates(i int, abs string, a WikiAction, today string) string {
+	if !strings.HasPrefix(a.Content, "---") {
+		return a.Content
+	}
+	fm, err := parseFrontmatter([]byte(a.Content))
+	if err != nil {
+		return a.Content
+	}
+	created := today
+	if existing, err := os.ReadFile(abs); err == nil {
+		if old, err := parseFrontmatter(existing); err == nil && stringFromAny(old.Created) != "" {
+			created = stringFromAny(old.Created)
+		}
+	}
+	content := a.Content
+	for _, kv := range [...]struct{ key, want, have string }{
+		{"created", created, stringFromAny(fm.Created)},
+		{"updated", today, stringFromAny(fm.Updated)},
+	} {
+		if kv.have == kv.want {
+			continue
+		}
+		content = setFrontmatterScalar(content, kv.key, kv.want)
+		if kv.have != "" {
+			logMsg("envelope", "action[%d] create %q: %s %s → %s (dates on this path are not the model's to choose)", i, a.Path, kv.key, kv.have, kv.want)
+		}
+	}
+	return content
 }
 
 // applyAppendAction appends to an existing page, promoting to create
@@ -1425,6 +1474,10 @@ func setFrontmatterScalar(content, key, value string) string {
 //     articles missing these fields. An *invalid* confidence value is
 //     left for lint to flag — silently rewriting a stated value would
 //     misrepresent the model's claim (same stance as lint --fix).
+//  5. A future `created`/`updated` — set to today, on content and on
+//     update_frontmatter maps alike. Unlike a past date, which may be a
+//     real backdate, no real date is in the future (#120). A future
+//     `created` takes `updated` with it, so the pair stays ordered.
 //
 // Gated by ApplyOptions.SanitizeContent (set by all 8 envelope
 // consumers as of 0.2.24), so every caller inherits identical
@@ -1433,10 +1486,26 @@ func setFrontmatterScalar(content, key, value string) string {
 // schema change, matching sanitizeEnvelopeContent's precedent.
 func clampEnvelopeFrontmatter(env *WikiActionEnvelope, root string) {
 	domains := validDomainsForRoot(root)
-	today := time.Now().UTC().Format("2006-01-02")
+	now := time.Now()
+	today := now.UTC().Format(time.DateOnly)
 	kept := make([]WikiAction, 0, len(env.Actions))
-	var dropped, retyped, redomained, stamped, deduped, nested, refenced int
+	var dropped, retyped, redomained, stamped, deduped, nested, refenced, futured int
 	for _, a := range env.Actions {
+		if a.Op == "update_frontmatter" {
+			var fixed map[string]any
+			for _, key := range [...]string{"created", "updated"} {
+				if isFutureDate(a.Frontmatter[key], now) {
+					if fixed == nil {
+						fixed = maps.Clone(a.Frontmatter) // shared with the caller's envelope
+					}
+					fixed[key] = today
+					futured++
+				}
+			}
+			if fixed != nil {
+				a.Frontmatter = fixed
+			}
+		}
 		if !strings.HasPrefix(a.Content, "---") {
 			kept = append(kept, a) // section body / append fragment — not ours
 			continue
@@ -1512,10 +1581,18 @@ func clampEnvelopeFrontmatter(env *WikiActionEnvelope, root string) {
 				stamped++
 			}
 		}
+		if createdFuture := isFutureDate(fm.Created, now); createdFuture || isFutureDate(fm.Updated, now) {
+			if createdFuture {
+				a.Content = setFrontmatterScalar(a.Content, "created", today)
+			}
+			a.Content = setFrontmatterScalar(a.Content, "updated", today)
+			logMsg("envelope", "clamp: %q — future date (created %s, updated %s) set to %s", a.Path, stringFromAny(fm.Created), stringFromAny(fm.Updated), today)
+			futured++
+		}
 		kept = append(kept, a)
 	}
-	if dropped+retyped+redomained+stamped+deduped+nested+refenced > 0 {
-		logMsg("envelope", "clamp: %d dropped, %d type-clamped, %d domain-clamped, %d field(s) stamped, %d duplicate key(s) collapsed, %d nested frontmatter stripped, %d opening fence(s) normalized", dropped, retyped, redomained, stamped, deduped, nested, refenced)
+	if dropped+retyped+redomained+stamped+deduped+nested+refenced+futured > 0 {
+		logMsg("envelope", "clamp: %d dropped, %d type-clamped, %d domain-clamped, %d field(s) stamped, %d duplicate key(s) collapsed, %d nested frontmatter stripped, %d opening fence(s) normalized, %d future date(s) set to today", dropped, retyped, redomained, stamped, deduped, nested, refenced, futured)
 	}
 	env.Actions = kept
 }

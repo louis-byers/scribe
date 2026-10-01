@@ -1588,3 +1588,99 @@ func TestApplyWikiActions_ClampNormalizesOpeningFence(t *testing.T) {
 		})
 	}
 }
+
+// TestApplyWikiActions_ModelDates pins #120: a model can write a well-formed
+// created/updated that is false, in either direction. Callers whose prompt
+// pins the dates to today get today regardless; every caller loses a future
+// date; a past date survives only where it can be real provenance (absorb).
+func TestApplyWikiActions_ModelDates(t *testing.T) {
+	today := time.Now().UTC().Format(time.DateOnly)
+	future := time.Now().UTC().AddDate(0, 0, 30).Format(time.DateOnly)
+	article := func(created, updated string) string {
+		return "---\ntitle: D\ntype: solution\ndomain: general\ncreated: " + created + "\nupdated: " + updated + "\nconfidence: low\n---\nbody\n"
+	}
+	dates := func(t *testing.T, s string) (string, string) {
+		t.Helper()
+		fm, err := parseFrontmatter([]byte(s))
+		if err != nil {
+			t.Fatalf("unparseable: %v\n%s", err, s)
+		}
+		return stringFromAny(fm.Created), stringFromAny(fm.Updated)
+	}
+
+	t.Run("entity writers stamp today over invented dates", func(t *testing.T) {
+		for name, in := range map[string]string{
+			"past":   article("2024-07-15", "2024-07-15"),
+			"future": article(future, future),
+		} {
+			root := t.TempDir()
+			env := WikiActionEnvelope{Actions: []WikiAction{{Op: "create", Path: "solutions/" + name + ".md", Content: in}}}
+			if res, err := applyWikiActions(root, env, entityWriterApplyOptions()); err != nil || len(res.Errors) > 0 {
+				t.Fatalf("%s: err=%v res=%v", name, err, res.Errors)
+			}
+			if c, u := dates(t, readBack(t, root, "solutions/"+name+".md")); c != today || u != today {
+				t.Errorf("%s: created=%s updated=%s, want both %s", name, c, u, today)
+			}
+		}
+	})
+
+	t.Run("a create replacing a file keeps its created", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "solutions", "kept.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(article("2025-01-02", "2025-03-04")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		opts := entityWriterApplyOptions()
+		opts.AllowOverwrite = true
+		env := WikiActionEnvelope{Actions: []WikiAction{{Op: "create", Path: "solutions/kept.md", Content: article("2024-07-15", "2024-07-15")}}}
+		if _, err := applyWikiActions(root, env, opts); err != nil {
+			t.Fatal(err)
+		}
+		if c, u := dates(t, readBack(t, root, "solutions/kept.md")); c != "2025-01-02" || u != today {
+			t.Errorf("created=%s updated=%s, want 2025-01-02 and %s", c, u, today)
+		}
+	})
+
+	t.Run("absorb keeps a past date but not a future one", func(t *testing.T) {
+		root := t.TempDir()
+		env := WikiActionEnvelope{Actions: []WikiAction{
+			{Op: "create", Path: "solutions/past.md", Content: article("2025-11-30", "2025-12-15")},
+			{Op: "create", Path: "solutions/ahead.md", Content: article(future, "2025-12-15")},
+		}}
+		if _, err := applyWikiActions(root, env, ApplyOptions{AllowOverwrite: true, SanitizeContent: true}); err != nil {
+			t.Fatal(err)
+		}
+		if c, u := dates(t, readBack(t, root, "solutions/past.md")); c != "2025-11-30" || u != "2025-12-15" {
+			t.Errorf("past dates rewritten: created=%s updated=%s", c, u)
+		}
+		// A future created takes updated with it, or updated would precede it.
+		if c, u := dates(t, readBack(t, root, "solutions/ahead.md")); c != today || u != today {
+			t.Errorf("future created: created=%s updated=%s, want both %s", c, u, today)
+		}
+	})
+
+	t.Run("update_frontmatter cannot set a future date", func(t *testing.T) {
+		root := t.TempDir()
+		path := filepath.Join(root, "solutions", "bump.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(article("2025-01-02", "2025-03-04")), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		fmMap := map[string]any{"updated": future}
+		env := WikiActionEnvelope{Actions: []WikiAction{{Op: "update_frontmatter", Path: "solutions/bump.md", Frontmatter: fmMap}}}
+		if res, err := applyWikiActions(root, env, entityWriterApplyOptions()); err != nil || len(res.Errors) > 0 {
+			t.Fatalf("err=%v res=%v", err, res.Errors)
+		}
+		if _, u := dates(t, readBack(t, root, "solutions/bump.md")); u != today {
+			t.Errorf("updated=%s, want %s", u, today)
+		}
+		if fmMap["updated"] != future {
+			t.Error("the caller's frontmatter map must not be mutated")
+		}
+	})
+}

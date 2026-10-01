@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestNormalizeAliasesBlock_RepairsCorruption reproduces the people/*.md
@@ -676,5 +677,32 @@ func TestAutoFixArticle_NormalizesTrailingWhitespaceFence(t *testing.T) {
 				t.Errorf("expected an opening-fence change, got: %v", changes)
 			}
 		})
+	}
+}
+
+// TestAutoFixArticle_ClampsFutureDates: lint --fix sets an invented future
+// date to today (#120), and raises updated with created so the fixed pair
+// still validates. A past date is not touched.
+func TestAutoFixArticle_ClampsFutureDates(t *testing.T) {
+	today := time.Now().Format(time.DateOnly)
+	future := time.Now().AddDate(0, 0, 30).Format(time.DateOnly)
+	in := "---\ntitle: \"X\"\ntype: pattern\ncreated: " + future + "\nupdated: 2024-07-15\ntags: []\nrelated: []\nsources: []\nconfidence: medium\ndomain: general\n---\n\nBody.\n"
+	changes, out, err := autoFixArticle("", "patterns/x.md", []byte(in))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out == nil {
+		t.Fatalf("expected a fix; changes=%v", changes)
+	}
+	s := string(out)
+	for _, want := range []string{"\ncreated: " + today + "\n", "\nupdated: " + today + "\n"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in:\n%s", strings.TrimSpace(want), s)
+		}
+	}
+
+	past := strings.Replace(in, "created: "+future, "created: 2024-07-01", 1)
+	if _, out, err := autoFixArticle("", "patterns/x.md", []byte(past)); err != nil || (out != nil && !strings.Contains(string(out), "created: 2024-07-01")) {
+		t.Errorf("a past created must survive: err=%v\n%s", err, out)
 	}
 }

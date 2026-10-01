@@ -22,6 +22,7 @@ import (
 //   - add missing updated: <today>
 //   - add missing created: <today> (only when file mtime unavailable)
 //   - reformat 2026/04/20 or 2026.04.20 → 2026-04-20 in created/updated
+//   - clamp a future created/updated to today (a past one may be real)
 //   - strip trailing whitespace on every line
 //   - clamp an invalid/missing `type` to the path's canonical type
 //     (decisions/→decision, …; wiki/ & sessions/ → research). The
@@ -236,6 +237,9 @@ func autoFixArticle(root, rel string, content []byte) ([]string, []byte, error) 
 		}
 	}
 
+	today := time.Now().Format(time.DateOnly)
+	changes = append(changes, clampFutureDates(lines, time.Now())...)
+
 	// Coerce a scalar tags/related/sources value into an inline list. The
 	// LLM (and hand edits) sometimes emit `tags: a, b, c` — a comma string
 	// where the schema wants a sequence — which validate rejects as
@@ -261,7 +265,6 @@ func autoFixArticle(root, rel string, content []byte) ([]string, []byte, error) 
 	}
 
 	// Append missing keys with safe defaults.
-	today := time.Now().Format("2006-01-02")
 	missingDefaults := []struct {
 		key string
 		val string
@@ -673,6 +676,28 @@ func coerceScalarListField(lines []string, key string) ([]string, bool) {
 		return out, true
 	}
 	return lines, false
+}
+
+// clampFutureDates sets an invented future created/updated to today (#120),
+// in place, and returns the changes. A future created takes updated with it
+// so the pair stays ordered. Past dates are left alone: a real backdate
+// looks the same.
+func clampFutureDates(lines []string, now time.Time) []string {
+	var changes []string
+	today := now.Format(time.DateOnly)
+	if created := frontmatterValue(lines, "created"); isFutureDate(created, now) {
+		replaceFMLine(lines, "created", today)
+		changes = append(changes, fmt.Sprintf("clamped future created %s → %s", created, today))
+		if updated := frontmatterValue(lines, "updated"); updated != "" && updated < today {
+			replaceFMLine(lines, "updated", today)
+			changes = append(changes, fmt.Sprintf("raised updated %s → %s to follow created", updated, today))
+		}
+	}
+	if updated := frontmatterValue(lines, "updated"); isFutureDate(updated, now) {
+		replaceFMLine(lines, "updated", today)
+		changes = append(changes, fmt.Sprintf("clamped future updated %s → %s", updated, today))
+	}
+	return changes
 }
 
 // frontmatterValue returns the value of a top-level scalar `key:` line

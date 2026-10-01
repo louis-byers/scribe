@@ -38,6 +38,39 @@ var (
 	dateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 )
 
+// futureDateSlack lets a date through up to tomorrow, UTC: a writer whose
+// local date is ahead of UTC can stamp tomorrow, but no one's local date is
+// two days ahead.
+const futureDateSlack = 24 * time.Hour
+
+// isFutureDate reports whether a created/updated value parses as a date
+// later than any writer's local today. No real provenance is in the future,
+// so such a value was invented (#120).
+func isFutureDate(v any, now time.Time) bool {
+	t, ok := updatedToTime(v)
+	return ok && t.After(now.UTC().Add(futureDateSlack))
+}
+
+// implausibleDateErrors checks created/updated values, not just their
+// format: a model can write a well-formed but false date in either
+// direction (#120). A past date can't be checked by value, since a real
+// backdate looks the same, but nothing real is dated in the future, and
+// nothing is updated before it was created.
+func implausibleDateErrors(raw map[string]any, now time.Time) []string {
+	var errs []string
+	for _, field := range []string{"created", "updated"} {
+		if isFutureDate(raw[field], now) {
+			errs = append(errs, fmt.Sprintf("%s is in the future: '%s'", field, stringFromAny(raw[field])))
+		}
+	}
+	c, okC := updatedToTime(raw["created"])
+	u, okU := updatedToTime(raw["updated"])
+	if okC && okU && u.Format(time.DateOnly) < c.Format(time.DateOnly) {
+		errs = append(errs, fmt.Sprintf("updated '%s' is before created '%s'", u.Format(time.DateOnly), c.Format(time.DateOnly)))
+	}
+	return errs
+}
+
 // validDomainsForRoot returns the permitted domain set, derived from
 // scribe.yaml at `root` (config `domains:` list plus the universal
 // "personal" / "general" fallbacks). Tests can preempt the lookup by
@@ -218,6 +251,7 @@ func validateFile(root, path string) []string {
 		}
 		errs = append(errs, fmt.Sprintf("%s not in YYYY-MM-DD format: '%v'", field, v))
 	}
+	errs = append(errs, implausibleDateErrors(raw, time.Now())...)
 
 	// Validate type-specific fields
 	if fields, ok := typeFields[fm.Type]; ok {
