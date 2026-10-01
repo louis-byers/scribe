@@ -630,28 +630,17 @@ func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[st
 	if err != nil {
 		return 0, false
 	}
-	// Same aggregate the pre-filter's querySessionStats computes per
-	// session, batched: status must apply the mechanical gate too, and
-	// N round-trips for one scoreboard line is not worth it.
 	//nolint:noctx // status command is short-lived
-	rows, err := db.Query(`
-		SELECT s.session_id,
-			COALESCE(s.project_path, ''),
-			COALESCE(SUM(CASE WHEN m.type = 'user' THEN 1 ELSE 0 END), 0),
-			COALESCE(SUM(LENGTH(m.text_content)), 0)
-		FROM sessions s
-		LEFT JOIN messages m ON m.session_id = s.id
-		GROUP BY s.id`)
+	rows, err := db.Query("SELECT session_id, COALESCE(project_path, '') FROM sessions")
 	if err != nil {
 		return 0, false
 	}
 	defer rows.Close()
 
-	pending := 0
+	var candidates []string
 	for rows.Next() {
 		var sid, ppath string
-		var userMsgs, totalChars int
-		if err := rows.Scan(&sid, &ppath, &userMsgs, &totalChars); err != nil {
+		if err := rows.Scan(&sid, &ppath); err != nil {
 			continue
 		}
 		if ppath == "" {
@@ -669,24 +658,29 @@ func countScopedPendingSessions(root string, cfg *ScribeConfig, processed map[st
 		if sessionDropReason(cfg, manifest, root, ppath) != "" {
 			continue
 		}
-		// ...and the mechanical gate, which lives in preFilterSessions
-		// rather than in sessionDropReason. filterVerdict is its single
-		// source of truth; re-deriving the thresholds here would let the
-		// two drift, which is what #103 extracted the other predicate to
-		// prevent. A thin session is normally marked processed when the
-		// miner meets it — but it is never admitted, so that never fires
-		// and it would otherwise count as pending forever.
-		stats := sessionFilterStats{UserMsgs: userMsgs, TotalChars: totalChars, ProjectPath: ppath, Found: true}
-		if stats.filterVerdict() != "" {
-			continue
-		}
 		if _, done := processed[sid]; done {
 			continue
 		}
-		pending++
+		candidates = append(candidates, sid)
 	}
 	if err := rows.Err(); err != nil {
 		return 0, false
+	}
+	_ = rows.Close()
+
+	// ...and the mechanical gate, which lives in preFilterSessions rather
+	// than in sessionDropReason. Same query and verdict the miner uses, so
+	// the two cannot drift (why #103 extracted the other predicate). A thin
+	// session is normally marked processed when the miner meets it, but it
+	// is never admitted, so that never fires and it would otherwise count
+	// as pending forever. Stats run last, per surviving candidate: summing
+	// every message's text over the whole DB took 7s cold on a 1.9 GB
+	// ccrider DB, and status also runs at the end of `scribe doctor`.
+	pending := 0
+	for _, sid := range candidates {
+		if querySessionStats(db, sid).filterVerdict() == "" {
+			pending++
+		}
 	}
 	return pending, true
 }
