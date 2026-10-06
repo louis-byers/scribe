@@ -2,6 +2,34 @@
 
 All notable changes to scribe are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/) (pre-1.0 — minor bumps may include breaking changes).
 
+## [0.5.6] — 2026-10-06
+
+Dependency refresh. The PDF parser behind tier-0 conversion picks up 16
+months of fixes for malformed files, and the Go toolchain moves to the newest
+1.26 patch. No other behavior changes.
+
+### Fixed
+
+- **Malformed PDFs can no longer hang or crash tier-0 conversion.**
+  `ledongthuc/pdf` moves from its 2025-05-11 commit to 2026-09-07. scribe
+  already recovered from the parser's panics, but `recover` stops neither a
+  loop nor a stack overflow. An array cut off at end-of-file made the lexer
+  spin forever, stalling whichever run hit that PDF (`ingest`, `absorb` or
+  the inbox drain), and a deeply nested object graph could overflow the
+  stack, which kills the process outright. The new commit fixes the loop,
+  caps nesting depth, and stops panicking on a malformed CMap preamble. It
+  also decodes ASCII85 `z` groups correctly, handles empty streams and tokens
+  split across content streams, and adds the `UniGB-UCS2-H` encoding.
+
+### Internal
+
+- Go toolchain 1.26.6 → 1.26.8 (net/http, cgo, compiler and runtime bug
+  fixes; no new security advisories). `golang.org/x/sync` 0.23.0 (supersedes
+  #106), `x/net` 0.59.0, `x/sys` 0.48.0.
+- Release tooling: GoReleaser 2.18.2, syft 1.54.0, cosign 2.6.5 (still on
+  the 2.x line, which writes the separate `.sig` and `.pem` files the release
+  publishes).
+
 ## [0.5.5] — 2026-10-01
 
 Models no longer choose article dates. A model writing a page could put any
