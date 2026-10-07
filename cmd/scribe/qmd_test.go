@@ -90,6 +90,7 @@ func TestResolveQMDBinaryPrefersExplicitConfigPath(t *testing.T) {
 func TestResolveQMDBinaryFallsBackToBareName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
+	skipIfSystemQMD(t)
 	if got := resolveQMDBinaryWith(""); got != "qmd" {
 		t.Errorf("resolveQMDBinaryWith = %q, want \"qmd\" when nothing is installed", got)
 	}
@@ -142,5 +143,70 @@ func TestReachableFromCron(t *testing.T) {
 	// Trailing-slash and dot forms are the same directory.
 	if !reachableFromCron("/usr/bin/git", "/usr/bin/"+sep+"/tmp") {
 		t.Error("trailing slash in cron PATH should still match")
+	}
+}
+
+// A relative qmd_path is rejected: exec resolves it against cmd.Dir (the
+// KB root) while isExecutableFile checks it against the cwd, so the file
+// checked and the file run could differ.
+func TestResolveQMDBinaryRejectsRelativeExplicitPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	writeExec(t, filepath.Join(dir, "qmd-rel"))
+	t.Chdir(dir)
+	if got := resolveQMDBinaryOnPath("qmd-rel", ""); got == "qmd-rel" || got == filepath.Join(dir, "qmd-rel") {
+		t.Errorf("relative qmd_path was honored: %q", got)
+	}
+}
+
+// doctor resolves against cron's PATH: a qmd only the interactive PATH can
+// see must not resolve to an absolute path there.
+func TestResolveQMDBinaryOnPathIgnoresProcessPATH(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	skipIfSystemQMD(t)
+	interactiveDir := t.TempDir()
+	want := writeExec(t, filepath.Join(interactiveDir, "qmd"))
+	t.Setenv("PATH", interactiveDir)
+
+	if got := resolveQMDBinaryOnPath("", interactiveDir); got != want {
+		t.Errorf("on interactive PATH: got %q, want %q", got, want)
+	}
+	cronPath := t.TempDir()
+	if got := resolveQMDBinaryOnPath("", cronPath); filepath.IsAbs(got) {
+		t.Errorf("on cron PATH: got %q, want the bare-name fallback — the process PATH leaked in", got)
+	}
+}
+
+func TestCheckQMDDepFailsWhenOnlyInteractivePATHHasQMD(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	skipIfSystemQMD(t)
+	interactiveDir := t.TempDir()
+	qmd := writeExec(t, filepath.Join(interactiveDir, "qmd"))
+	t.Setenv("PATH", interactiveDir)
+
+	got := checkQMDDep(depSpec{Name: "qmd", Binary: "qmd"}, "", t.TempDir(), true)
+	if got.Status != statusFail {
+		t.Fatalf("status = %v (%s), want FAIL: scheduled runs cannot find qmd", got.Status, got.Detail)
+	}
+	if !strings.Contains(got.Fix, qmd) || !strings.Contains(got.Fix, "scribe.local.yaml") {
+		t.Errorf("fix %q should name the interactive path and scribe.local.yaml", got.Fix)
+	}
+
+	got = checkQMDDep(depSpec{Name: "qmd", Binary: "qmd"}, "", interactiveDir, true)
+	if got.Status != statusOK {
+		t.Errorf("status = %v (%s), want OK when cron's PATH has qmd", got.Status, got.Detail)
+	}
+}
+
+// skipIfSystemQMD skips tests that expect qmd NOT to resolve: fixedQMDPaths
+// also probes absolute system locations HOME does not isolate, so on a
+// machine with qmd installed there the not-found path is unreachable,
+// which says nothing about the code. Call after setting HOME.
+func skipIfSystemQMD(t *testing.T) {
+	t.Helper()
+	for _, p := range fixedQMDPaths(os.Getenv("HOME")) {
+		if isExecutableFile(p) {
+			t.Skipf("qmd installed at %s on this machine", p)
+		}
 	}
 }

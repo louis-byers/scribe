@@ -534,3 +534,27 @@ func TestMissingScribeYAMLSoloStaysDefault(t *testing.T) {
 		t.Errorf("defaults not applied: sync=%+v llm=%+v", cfg.Sync, cfg.LLM)
 	}
 }
+
+// qmd_path names an executable: in a team KB the repo file must not be able
+// to set it, even with no trust record yet. scribe.local.yaml can.
+func TestTeamQMDPathHardOff(t *testing.T) {
+	root := setupTrustKB(t, "team: true\nqmd_path: /tmp/team/scripts/qmd\n", "")
+	if cfg := loadConfig(root); cfg.QMDPath != "" {
+		t.Errorf("team KB took qmd_path from the repo file: %q", cfg.QMDPath)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, localConfigName),
+		[]byte("qmd_path: /opt/node/bin/qmd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg := loadConfig(root); cfg.QMDPath != "/opt/node/bin/qmd" {
+		t.Errorf("local qmd_path override lost: %q", cfg.QMDPath)
+	}
+}
+
+func TestSoloKBHonorsQMDPath(t *testing.T) {
+	root := setupTrustKB(t, "qmd_path: /opt/node/bin/qmd\n", "")
+	if cfg := loadConfig(root); cfg.QMDPath != "/opt/node/bin/qmd" {
+		t.Errorf("solo KB qmd_path = %q, want it honored", cfg.QMDPath)
+	}
+}

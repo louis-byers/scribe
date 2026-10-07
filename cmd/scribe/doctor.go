@@ -178,6 +178,37 @@ func cronPATH() (string, bool) {
 	return string(out), true
 }
 
+// checkQMDDep resolves qmd the way a scheduled run would when cron's PATH
+// is known, so an install only the interactive shell can see is reported
+// as the failure it is under launchd rather than as OK.
+func checkQMDDep(d depSpec, explicit, cronPath string, cronKnown bool) check {
+	const localHint = " (or set qmd_path in scribe.local.yaml)"
+	interactive := resolveQMDBinaryWith(explicit)
+	if !cronKnown {
+		if filepath.IsAbs(interactive) {
+			return check{Section: "deps", Name: d.Name, Status: statusOK, Detail: interactive}
+		}
+		return check{Section: "deps", Name: d.Name, Status: statusFail, Detail: "not found in PATH or any known node install", Fix: d.Fix + localHint}
+	}
+	scheduled := resolveQMDBinaryOnPath(explicit, cronPath)
+	switch {
+	case filepath.IsAbs(scheduled):
+		detail := scheduled
+		if !reachableFromCron(scheduled, cronPath) {
+			detail += " (not on cron PATH — scribe invokes it by absolute path)"
+		}
+		return check{Section: "deps", Name: d.Name, Status: statusOK, Detail: detail}
+	case filepath.IsAbs(interactive):
+		return check{
+			Section: "deps", Name: d.Name, Status: statusFail,
+			Detail: interactive + " — on your PATH but scheduled runs cannot find it, so every cron reindex fails",
+			Fix:    "set qmd_path: " + interactive + " in scribe.local.yaml",
+		}
+	default:
+		return check{Section: "deps", Name: d.Name, Status: statusFail, Detail: "not found in PATH or any known node install", Fix: d.Fix + localHint}
+	}
+}
+
 // reachableFromCron reports whether binPath's directory is on cronPath.
 func reachableFromCron(binPath, cronPath string) bool {
 	dir := filepath.Dir(binPath)
@@ -198,16 +229,7 @@ func checkDeps(cfg *ScribeConfig) []check {
 		// child's PATH for its `env node` shebang), so PATH reachability
 		// is not what decides whether cron can run it.
 		if d.Binary == "qmd" {
-			resolved := resolveQMDBinaryWith(cfg.QMDPath)
-			if filepath.IsAbs(resolved) {
-				detail := resolved
-				if cronKnown && !reachableFromCron(resolved, cronPath) {
-					detail += " (not on cron PATH — scribe invokes it by absolute path)"
-				}
-				out = append(out, check{Section: "deps", Name: d.Name, Status: statusOK, Detail: detail})
-			} else {
-				out = append(out, check{Section: "deps", Name: d.Name, Status: statusFail, Detail: "not found in PATH or any known node install", Fix: d.Fix + " (or set qmd_path in scribe.yaml)"})
-			}
+			out = append(out, checkQMDDep(d, cfg.QMDPath, cronPath, cronKnown))
 			continue
 		}
 

@@ -84,10 +84,11 @@ type sensitiveConfig struct {
 	ClaudeProjectsDir string        `json:"claude_projects_dir"`
 	CodexSessionsDir  string        `json:"codex_sessions_dir"`
 	CcriderDB         string        `json:"ccrider_db"`
-	// QMDPath names a binary scribe EXECUTES. A pushed change to it in a
-	// shared KB is arbitrary code execution on every machine that syncs,
-	// which makes it the most sensitive leaf in this struct — locked
-	// unconditionally, not merely diffed.
+	// QMDPath names a binary scribe EXECUTES. Diffed here like any other
+	// sensitive leaf, and additionally hard-off in a team KB (see
+	// enforceConfigTrust): a pushed value would be code execution on every
+	// member's machine, and a trusted snapshot accepted for some unrelated
+	// change must not carry it along.
 	QMDPath string        `json:"qmd_path"`
 	Capture CaptureConfig `json:"capture"`
 	// Integrations is a personal ingestion source (pull adapters). Locked for
@@ -360,6 +361,10 @@ func enforceConfigTrust(root string, cfg *ScribeConfig) {
 		// scribe.local.yaml. (Tokens live only in user config/env, so this is
 		// belt-and-suspenders — an unconfigured member already no-ops.)
 		cfg.Integrations = nil
+		// qmd_path names an executable, and binary locations are per
+		// machine anyway — a shared value cannot be right for every
+		// member. Set it in scribe.local.yaml.
+		cfg.QMDPath = ""
 	}
 }
 

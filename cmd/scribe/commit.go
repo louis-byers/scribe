@@ -150,8 +150,10 @@ func commitRun(root string) error {
 	// absorbed, or pulled something, so without this those files were
 	// committed and then sat unsearchable until some unrelated sync run
 	// happened to fire. Gated on wikiN because raw/ and config-only
-	// commits are outside the qmd collection pattern, and incremental
-	// (~1s on a 200-article KB), so it is cheap enough for an hourly job.
+	// commits are outside the qmd collection pattern. `qmd update` is
+	// incremental (~1s on a 200-article KB); `qmd embed` loads the
+	// embedding model and can take minutes after a bulk import, and the
+	// locks below are held for all of it. Acceptable for an hourly job.
 	//
 	// Runs while the sync/dream/capture locks are still held, so it
 	// cannot race a concurrent sync's own reindex. Deliberately does NOT

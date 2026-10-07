@@ -39,6 +39,7 @@ func nodeManagerQMDGlobs(home string) []string {
 		filepath.Join(home, ".volta", "bin", "qmd"),
 		filepath.Join(home, ".bun", "bin", "qmd"),
 		filepath.Join(home, ".asdf", "installs", "nodejs", "*", "bin", "qmd"),
+		filepath.Join(home, ".local", "share", "mise", "installs", "node", "*", "bin", "qmd"),
 	}
 }
 
@@ -71,14 +72,25 @@ func resolveQMDBinary(root string) string {
 }
 
 // resolveQMDBinaryWith is resolveQMDBinary for callers that already hold
-// the config (doctor), so probing does not re-read scribe.yaml.
+// the config, resolving against this process's own PATH.
 func resolveQMDBinaryWith(explicit string) string {
+	return resolveQMDBinaryOnPath(explicit, os.Getenv("PATH"))
+}
+
+// resolveQMDBinaryOnPath resolves against an explicit PATH list. doctor
+// passes cron's PATH here: resolving against its own interactive PATH
+// would report a qmd that only the interactive shell can see as fine.
+//
+// An explicit qmd_path must be absolute. exec resolves a relative path
+// against cmd.Dir (the KB root), not the cwd isExecutableFile checks, so
+// the file checked and the file run could differ.
+func resolveQMDBinaryOnPath(explicit, pathList string) string {
 	if explicit != "" {
-		if p := expandHome(explicit); isExecutableFile(p) {
+		if p := expandHome(explicit); filepath.IsAbs(p) && isExecutableFile(p) {
 			return p
 		}
 	}
-	if p, err := exec.LookPath("qmd"); err == nil {
+	if p := lookPathIn("qmd", pathList); p != "" {
 		return p
 	}
 	home := os.Getenv("HOME")
@@ -96,6 +108,20 @@ func resolveQMDBinaryWith(explicit string) string {
 		}
 	}
 	return "qmd"
+}
+
+// lookPathIn is exec.LookPath against a caller-supplied PATH list. Empty
+// and relative entries are skipped, so a "." on PATH cannot resolve.
+func lookPathIn(name, pathList string) string {
+	for dir := range strings.SplitSeq(pathList, string(os.PathListSeparator)) {
+		if dir == "" || !filepath.IsAbs(dir) {
+			continue
+		}
+		if p := filepath.Join(dir, name); isExecutableFile(p) {
+			return p
+		}
+	}
+	return ""
 }
 
 // newestExecutableMatch expands a glob and returns the executable match
