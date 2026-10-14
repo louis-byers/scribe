@@ -357,7 +357,7 @@ func collectKnowledgeFiles(projectPath string) []string {
 		}
 		if info.IsDir() {
 			rel, _ := filepath.Rel(projectPath, path)
-			if excludeDirs.MatchString(rel + "/") {
+			if excludeDirs.MatchString(rel+"/") || isClaudeToolingDir(projectPath, path) {
 				return filepath.SkipDir
 			}
 			return nil

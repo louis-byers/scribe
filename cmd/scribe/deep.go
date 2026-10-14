@@ -303,7 +303,7 @@ func findKnowledgeDirs(projectPath string) ([]string, error) {
 			return nil //nolint:nilerr // skip unreadable, continue walk
 		}
 		if info.IsDir() {
-			if excludedDirNames[info.Name()] {
+			if excludedDirNames[info.Name()] || isClaudeToolingDir(projectPath, path) {
 				return filepath.SkipDir
 			}
 			return nil
