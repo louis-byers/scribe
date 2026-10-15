@@ -660,7 +660,9 @@ func (s *SyncCmd) mineSessionsSerial(root string, sessionIDs []string, timeout t
 // at full LLM cost. Phase name matches the pre-filter skip-marker write
 // so `scribe doctor` groups both writes to this file under one phase.
 func recordSessionProcessed(root, sessionID string) {
-	if err := applyMetaAction(root, MetaAction{Op: "sessions_log_append", SessionID: sessionID}, ApplyOptions{}); err != nil {
+	// Direct call, not applyMetaAction: the meta op is a no-op for model
+	// output on purpose (Go is the only writer of the sessions log).
+	if err := applyMetaSessionsLogAppend(root, MetaAction{Op: "sessions_log_append", SessionID: sessionID}, ApplyOptions{}); err != nil {
 		logPhaseDegraded("sync", "session log update",
 			"could not record session %s as processed (it will be re-mined): %v", sessionID, err)
 	}

@@ -251,7 +251,7 @@ func contextualizeOne(root, rawPath, model string) error {
 	ctxFile := filepath.Join(stagingDir, strings.TrimSuffix(base, ".md")+".txt")
 
 	// Load raw article inline (truncated if pathologically long).
-	articleBytes, err := os.ReadFile(rawPath)
+	articleBytes, err := readRegularFile(rawPath)
 	if err != nil {
 		return fmt.Errorf("read raw: %w", err)
 	}
@@ -310,7 +310,7 @@ func contextualizeOne(root, rawPath, model string) error {
 	// Splice paragraph into the raw article between frontmatter and body.
 	// We re-read from disk rather than reuse articleBytes because the prompt
 	// may have been built off a truncated copy.
-	rawBytes, err := os.ReadFile(rawPath)
+	rawBytes, err := readRegularFile(rawPath)
 	if err != nil {
 		return fmt.Errorf("read raw: %w", err)
 	}

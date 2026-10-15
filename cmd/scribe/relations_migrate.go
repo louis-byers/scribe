@@ -232,7 +232,14 @@ func (r *RelationsMigrateRevertCmd) Run() error {
 	// Reverse order so the "last write wins" property holds during revert.
 	for i := len(entries) - 1; i >= 0; i-- {
 		e := entries[i]
-		sourcePath := filepath.Join(root, e.Source)
+		// The log is tracked (so revert works from any clone), which
+		// also means its paths are whatever the last push said they
+		// were. Keep every edit inside the KB's wiki dirs.
+		sourcePath, err := validateActionPath(root, e.Source)
+		if err != nil {
+			logMsg("relations-revert", "warn: skip entry %d: source %v", i, err)
+			continue
+		}
 		// Remove the typed edge we wrote.
 		if err := removeTypedEdgeFromFrontmatter(sourcePath, RelationKind(e.ToField), e.Target); err != nil {
 			logMsg("relations-revert", "warn: remove typed edge: %v", err)
@@ -245,7 +252,11 @@ func (r *RelationsMigrateRevertCmd) Run() error {
 		if e.Reverse != "" {
 			parts := strings.SplitN(e.Reverse, ":", 2)
 			if len(parts) == 2 {
-				targetPath := filepath.Join(root, parts[0])
+				targetPath, perr := validateActionPath(root, parts[0])
+				if perr != nil {
+					logMsg("relations-revert", "warn: skip reverse for entry %d: %v", i, perr)
+					continue
+				}
 				if err := removeTypedEdgeFromFrontmatter(targetPath, RelationKind(parts[1]), titleFromSourcePath(root, e.Source)); err != nil {
 					logMsg("relations-revert", "warn: remove reverse: %v", err)
 				}

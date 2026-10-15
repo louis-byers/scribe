@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -34,10 +35,84 @@ type fetchResult struct {
 // tier is optional: a missing binary or a hard fail falls through to
 // the next. forced lets callers pin a specific fetcher ("fxtwitter",
 // "trafilatura", "defuddle", "jina", "arxiv").
+// fetchAllowPrivateHosts switches refuseNonPublicURL off. Tests that
+// stand up a loopback server set it; nothing else should.
+var fetchAllowPrivateHosts = false
+
+// refuseNonPublicURL rejects a queued URL before any fetcher sees it:
+// only http/https, and the host must not resolve to loopback, private,
+// link-local (cloud metadata lives at 169.254.169.254) or unspecified
+// addresses. The fetchers are external processes that resolve and follow
+// redirects on their own, so this is a pre-check, not a sandbox — it
+// stops the obvious case where a saved link points at a local service.
+func refuseNonPublicURL(ctx context.Context, u *url.URL) error {
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme %q (only http/https are fetched)", u.Scheme)
+	}
+	if fetchAllowPrivateHosts {
+		return nil
+	}
+	host := u.Hostname()
+	if host == "" {
+		return errors.New("URL has no host")
+	}
+	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".localhost") {
+		return fmt.Errorf("refusing to fetch %s: local address", host)
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		// Unresolvable now; the fetcher will fail on its own. Not a
+		// policy decision.
+		return nil //nolint:nilerr // see comment
+	}
+	for _, addr := range ips {
+		ip := addr.IP
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return fmt.Errorf("refusing to fetch %s: resolves to a non-public address (%s)", host, ip)
+		}
+	}
+	return nil
+}
+
+// maxHTTPBodyBytes bounds every response body scribe reads into memory
+// or onto disk (article fetchers, arXiv metadata and PDFs, hosted and
+// local LLM replies). Matches the Pinboard adapter's cap.
+const maxHTTPBodyBytes = 64 << 20
+
+// readBodyBounded is io.ReadAll with the same cap and the same failure:
+// a body over the limit is an error, never a silently shortened article
+// or a half JSON document that fails later for the wrong reason.
+func readBodyBounded(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxHTTPBodyBytes+1))
+	if err != nil {
+		return data, err
+	}
+	if int64(len(data)) > maxHTTPBodyBytes {
+		return nil, fmt.Errorf("response exceeds the %d MiB limit", maxHTTPBodyBytes>>20)
+	}
+	return data, nil
+}
+
+// copyBounded copies at most maxHTTPBodyBytes from src and fails when
+// the source has more, so a runaway download cannot fill the disk.
+func copyBounded(dst io.Writer, src io.Reader) (int64, error) {
+	n, err := io.Copy(dst, io.LimitReader(src, maxHTTPBodyBytes+1))
+	if err != nil {
+		return n, err
+	}
+	if n > maxHTTPBodyBytes {
+		return n, fmt.Errorf("response exceeds the %d MiB limit", maxHTTPBodyBytes>>20)
+	}
+	return n, nil
+}
+
 func fetchURL(ctx context.Context, rawURL, forced string) (fetchResult, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Scheme == "" {
 		return fetchResult{}, fmt.Errorf("invalid URL: %s", rawURL)
+	}
+	if err := refuseNonPublicURL(ctx, u); err != nil {
+		return fetchResult{}, err
 	}
 
 	host := strings.ToLower(u.Hostname())
@@ -286,7 +361,7 @@ func fetchJina(ctx context.Context, rawURL string) (fetchResult, error) {
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("jina status %d", resp.StatusCode)
 		}
-		raw, err = io.ReadAll(resp.Body)
+		raw, err = readBodyBounded(resp.Body)
 		if err != nil {
 			return fmt.Errorf("jina read: %w", err)
 		}

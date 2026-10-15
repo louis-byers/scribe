@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -38,6 +39,23 @@ func worktreeMainRoot(path string) string {
 		return ""
 	}
 	return main
+}
+
+// nestedCheckout reports whether dir is a git checkout nested inside
+// the project being walked: a Claude Code worktree under
+// .claude/worktrees/, a Worktrunk worktree under .worktrees/, or a
+// submodule. Each is a full copy (or a different repo) whose files
+// would otherwise be listed next to the project's own, and because
+// dot-dirs sort first they can fill a bounded sample before any real
+// directory is reached. A linked worktree's .git is a FILE, so this
+// checks for either kind of entry. The project root itself is never
+// nested. Issue #131.
+func nestedCheckout(projectRoot, dir string) bool {
+	if filepath.Clean(dir) == filepath.Clean(projectRoot) {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 // evalSymlinksCache memoizes EvalSymlinks results ("" = unresolvable).

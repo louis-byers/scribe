@@ -49,6 +49,18 @@ jobs:
       # stolen key) produced the signature on checksums.txt.
       id-token: write
     steps:
+      - name: Validate tag input
+        # The manual tag is used as a checkout ref before the signing
+        # certs are imported; only a release-shaped tag may get that far.
+        if: ${{ inputs.tag != '' }}
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "tag input '$TAG' is not a release tag (vX.Y.Z)" >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

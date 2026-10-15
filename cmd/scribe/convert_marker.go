@@ -373,6 +373,11 @@ func preserveMarkerImages(md, markerOutDir, kbRoot, slug string) string {
 			continue
 		}
 		src := filepath.Join(markerOutDir, ref)
+		// A ref is text marker emitted for a PDF it converted; keep the
+		// copy inside the directory marker wrote, whatever the ref says.
+		if !pathWithinRoot(markerOutDir, src) {
+			continue
+		}
 		if _, err := os.Stat(src); err != nil {
 			// marker didn't actually emit this file — leave the
 			// link in place; absorb will see it as a broken

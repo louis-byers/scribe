@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -100,6 +101,12 @@ type sensitiveConfig struct {
 	APIKeyEnv    string             `json:"api_key_env"`
 	CodexMine    bool               `json:"codex_mine"`
 	SecretScan   SecretScanConfig   `json:"secret_scan"`
+	// SyncAutoApprove skips the per-project approval step for newly
+	// discovered repos — a pushed `true` would enroll every repo a
+	// member's discovery finds without anyone looking. omitempty keeps
+	// the hash of every existing record (where it was implicitly false)
+	// stable, so upgrading does not read as drift.
+	SyncAutoApprove bool `json:"sync_auto_approve,omitempty"`
 
 	ExtractOllamaURL       string `json:"extract_ollama_url"`
 	DreamOllamaURL         string `json:"dream_ollama_url"`
@@ -171,6 +178,7 @@ func sensitiveFrom(cfg *ScribeConfig) sensitiveConfig {
 		APIKeyEnv:         cfg.LLM.APIKeyEnv,
 		CodexMine:         cfg.Codex.Mine,
 		SecretScan:        cfg.SecretScan,
+		SyncAutoApprove:   cfg.Sync.AutoApprove,
 
 		ExtractOllamaURL:       cfg.Extract.OllamaURL,
 		DreamOllamaURL:         cfg.Dream.OllamaURL,
@@ -218,6 +226,7 @@ func (s sensitiveConfig) applyTo(cfg *ScribeConfig) {
 	cfg.LLM.APIKeyEnv = s.APIKeyEnv
 	cfg.Codex.Mine = s.CodexMine
 	cfg.SecretScan = s.SecretScan
+	cfg.Sync.AutoApprove = s.SyncAutoApprove
 
 	cfg.Extract.OllamaURL = s.ExtractOllamaURL
 	cfg.Dream.OllamaURL = s.DreamOllamaURL
@@ -381,7 +390,28 @@ func enforceConfigTrust(root string, cfg *ScribeConfig) {
 // never shrinks it. To drop a path locally, add it to sources.exclude
 // (exclude wins in sourceAllowed); the exclude list unions the same way.
 func applyLocalOverrides(root string, cfg *ScribeConfig) {
-	data, err := os.ReadFile(filepath.Join(root, localConfigName))
+	path := filepath.Join(root, localConfigName)
+	// "User-owned" has to be checked, not assumed. The file sits inside
+	// the checkout, so in a team KB a member can `git add -f` it (the
+	// gitignore only covers untracked files) or commit a symlink in its
+	// place, and every teammate's next pull materializes it — straight
+	// past the trust record, since local overrides win by design.
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return
+	}
+	if !fi.Mode().IsRegular() {
+		logAutoFlipOnce("local-config-symlink:"+root, "config",
+			"%s is not a regular file — ignoring local overrides", localConfigName)
+		return
+	}
+	if teamKB(root, cfg) && repoFileTracked(root, localConfigName) {
+		logAutoFlipOnce("local-config-tracked:"+root, "config",
+			"%s is tracked by git — ignoring local overrides (it must be gitignored and per-machine; `git rm --cached %s`)",
+			localConfigName, localConfigName)
+		return
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
@@ -394,6 +424,55 @@ func applyLocalOverrides(root string, cfg *ScribeConfig) {
 	}
 	cfg.Sources.Include = unionPaths(committedInclude, cfg.Sources.Include)
 	cfg.Sources.Exclude = unionPaths(committedExclude, cfg.Sources.Exclude)
+}
+
+// teamKB mirrors enforceConfigTrust's decision: the trust record's team
+// flag wins (a pushed `team: false` cannot unlock), the incoming file
+// decides only when no record exists yet.
+func teamKB(root string, cfg *ScribeConfig) bool {
+	if cfg != nil && cfg.Team {
+		return true
+	}
+	if rec := loadTrustRecord(root); rec != nil {
+		return rec.Sensitive.Team
+	}
+	// Fresh clone: no trust record yet (ensureConfigTrust runs later in
+	// sync). The repo's own scribe.yaml is the only signal, and a team KB
+	// declares itself there.
+	view, ok := repoSensitiveView(root)
+	return ok && view.Team
+}
+
+// invalidateRepoTrackedCache drops every memoized ls-files answer. Call it
+// after anything that can change the index: a pull may bring in a tracked
+// scribe.local.yaml or scripts/projects.json that an earlier loadConfig in
+// the same process already cached as untracked.
+func invalidateRepoTrackedCache() {
+	repoTrackedCache.Clear()
+}
+
+// repoTrackedCache memoises repoFileTracked per (root, rel) for the
+// life of the process: loadConfig runs on every command, including the
+// sub-second triage/hook/doctor paths, and the answer cannot change
+// underneath one invocation.
+var repoTrackedCache sync.Map
+
+// repoFileTracked reports whether rel is in the git index of root. Only
+// called for the rare combination (team KB AND the file exists), so the
+// common path costs no subprocess. Not-a-repo counts as untracked.
+func repoFileTracked(root, rel string) bool {
+	key := root + "\x00" + rel
+	if v, ok := repoTrackedCache.Load(key); ok {
+		tracked, _ := v.(bool)
+		return tracked
+	}
+	tracked := false
+	if hasGit(root) {
+		_, err := runCmdErr(root, "git", "ls-files", "--error-unmatch", "--", rel)
+		tracked = err == nil
+	}
+	repoTrackedCache.Store(key, tracked)
+	return tracked
 }
 
 // repoSensitiveView parses ONLY the repo scribe.yaml (no defaults, no
@@ -465,6 +544,7 @@ func sensitiveDiff(trusted, current sensitiveConfig) []string {
 		{"llm.api_key_env", trusted.APIKeyEnv, current.APIKeyEnv},
 		{"codex.mine", trusted.CodexMine, current.CodexMine},
 		{"secret_scan", trusted.SecretScan, current.SecretScan},
+		{"sync.auto_approve", trusted.SyncAutoApprove, current.SyncAutoApprove},
 		{"extract.ollama_url", trusted.ExtractOllamaURL, current.ExtractOllamaURL},
 		{"dream.ollama_url", trusted.DreamOllamaURL, current.DreamOllamaURL},
 		{"session_mine.ollama_url", trusted.SessionMineOllamaURL, current.SessionMineOllamaURL},

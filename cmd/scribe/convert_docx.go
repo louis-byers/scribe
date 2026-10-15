@@ -24,6 +24,34 @@ import (
 //
 // For complex DOCX, marker tier 1 is the right answer. This converter
 // is the no-Python fallback.
+// maxZipEntryBytes bounds one decompressed archive member. A .docx or
+// .epub in raw/inbox/ is a few MB of XML at most; a crafted one can
+// inflate to gigabytes and take `scribe sync` down with it. A var so
+// tests can lower it.
+var maxZipEntryBytes int64 = 64 << 20
+
+// readZipEntry reads one archive member under maxZipEntryBytes. The
+// header size is checked first (cheap); the stream is still bounded
+// because headers lie.
+func readZipEntry(f *zip.File) ([]byte, error) {
+	if f.UncompressedSize64 > uint64(maxZipEntryBytes) {
+		return nil, fmt.Errorf("%s: %d bytes exceeds the %d MiB limit", f.Name, f.UncompressedSize64, maxZipEntryBytes>>20)
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(io.LimitReader(rc, maxZipEntryBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxZipEntryBytes {
+		return nil, fmt.Errorf("%s: decompressed size exceeds the %d MiB limit", f.Name, maxZipEntryBytes>>20)
+	}
+	return data, nil
+}
+
 func convertDOCXTier0(data []byte) (string, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -33,12 +61,7 @@ func convertDOCXTier0(data []byte) (string, error) {
 	var docXML []byte
 	for _, f := range zr.File {
 		if f.Name == "word/document.xml" {
-			rc, err := f.Open()
-			if err != nil {
-				return "", fmt.Errorf("open word/document.xml: %w", err)
-			}
-			docXML, err = io.ReadAll(rc)
-			rc.Close()
+			docXML, err = readZipEntry(f)
 			if err != nil {
 				return "", fmt.Errorf("read word/document.xml: %w", err)
 			}

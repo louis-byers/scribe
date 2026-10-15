@@ -34,7 +34,7 @@
 set -euo pipefail
 
 SCRIBE_BIN="${SCRIBE_BIN:-scribe}"
-OUT_DIR="${OUT_DIR:-/tmp/scribe-compare-$$}"
+OUT_DIR="${OUT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/scribe-compare.XXXXXX")}"
 
 abort() {
     echo "ERROR: $*" >&2
@@ -107,12 +107,14 @@ restore_state() {
 
 # --- restore-on-exit guard --------------------------------------------
 
-trap 'echo "[$(date -u +%FT%TZ)] restoring state"; restore_state baseline 2>/dev/null || true; if [ -z "${KEEP_OUT:-}" ]; then rm -rf "$OUT_DIR"; fi' EXIT
-
 # --- baseline snapshot ------------------------------------------------
 
 echo "[$(date -u +%FT%TZ)] snapshotting baseline"
 snapshot_state baseline
+
+# Armed only after the baseline exists: a trap that fires mid-snapshot
+# would "restore" from a half-copied baseline and delete the real dirs.
+trap 'echo "[$(date -u +%FT%TZ)] restoring state"; restore_state baseline 2>/dev/null || true; if [ -z "${KEEP_OUT:-}" ]; then rm -rf "$OUT_DIR"; fi' EXIT
 
 # --- one run per mode -------------------------------------------------
 

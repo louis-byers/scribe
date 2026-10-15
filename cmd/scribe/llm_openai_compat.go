@@ -29,8 +29,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strings"
 	"time"
@@ -98,6 +99,43 @@ func (p *openaiCompatProvider) Name() string { return p.providerName + "/" + p.m
 // NOT a construction error: the provider is returned anyway and fails
 // loudly on first Generate, so a misconfigured hosted route never
 // silently falls back to a different (still-paid) vendor.
+// requireSecureBaseURL refuses to send a bearer token in clear text: a
+// hosted base_url must be https unless it points at this machine (a
+// local OpenAI-compatible server such as LM Studio or vLLM).
+func requireSecureBaseURL(base string) error {
+	u, err := neturl.Parse(base)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("llm.base_url %q is not a valid URL", base)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost") {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("llm.base_url %q must use https (the API key travels in the Authorization header); plain http is allowed only for loopback hosts", base)
+}
+
+// hostedHTTPClient is the client for provider calls: a POST with a bearer
+// token must never be replayed to another origin on a 307/308.
+func hostedHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 0 && (req.URL.Host != via[0].URL.Host || req.URL.Scheme != via[0].URL.Scheme) {
+				return fmt.Errorf("refusing cross-origin redirect to %s://%s", req.URL.Scheme, req.URL.Host)
+			}
+			if len(via) >= 5 {
+				return errors.New("too many redirects")
+			}
+			return nil
+		},
+	}
+}
+
 func newOpenAICompatProvider(provider, model, kbRoot string) *openaiCompatProvider {
 	name := strings.ToLower(strings.TrimSpace(provider))
 	def := hostedProviderDefaultsByName[name]
@@ -471,6 +509,9 @@ func (p *openaiCompatProvider) postChat(ctx context.Context, reqBody oaiChatRequ
 	if err != nil {
 		return "", oaiChatResponse{}, 0, "", fmt.Errorf("marshal request: %w", err)
 	}
+	if err := requireSecureBaseURL(p.baseURL); err != nil {
+		return "", oaiChatResponse{}, 0, "", err
+	}
 	url := p.baseURL + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -479,13 +520,13 @@ func (p *openaiCompatProvider) postChat(ctx context.Context, reqBody oaiChatRequ
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 
-	httpResp, err := (&http.Client{}).Do(req)
+	httpResp, err := hostedHTTPClient().Do(req)
 	if err != nil {
 		return "", oaiChatResponse{}, 0, "", fmt.Errorf("%s http: %w", p.providerName, err)
 	}
 	defer httpResp.Body.Close()
 
-	data, err := io.ReadAll(httpResp.Body)
+	data, err := readBodyBounded(httpResp.Body)
 	if err != nil {
 		return "", oaiChatResponse{}, httpResp.StatusCode, "", fmt.Errorf("read response: %w", err)
 	}

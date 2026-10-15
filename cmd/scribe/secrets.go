@@ -35,6 +35,11 @@ import (
 type SecretScanConfig struct {
 	// Disable turns the gate off entirely. Trust-locked in team mode.
 	Disable bool `yaml:"disable"`
+	// Enable switches the gate on for a solo KB, where it is off by
+	// default (a private repo has nobody to push a secret to). Team KBs
+	// ignore it — they are on unless Disable. Trust-locked like the rest
+	// of the struct.
+	Enable bool `yaml:"enable"`
 	// Generic enables the noisy generic key=value assignment rule
 	// (entropy-gated). Default off — articles legitimately say things
 	// like "set api_key: in scribe.yaml" all the time.
@@ -262,15 +267,17 @@ func scanContentForSecrets(content []byte, includeGeneric bool) []secretHit {
 			if len(scanLine) > maxLine {
 				scanLine = scanLine[:maxLine]
 			}
-			m := r.Re.FindSubmatch(scanLine)
-			if m == nil {
-				continue
+			// Every match on the line, not just the first: a minified
+			// absorb packs a whole page onto one line, and an allowlisted
+			// example key sitting before a real one must not shadow it.
+			for _, m := range r.Re.FindAllSubmatch(scanLine, -1) {
+				if secretValueAllowed(secretFromMatch(m, r.Group), r) {
+					continue
+				}
+				fired[r.ID] = true
+				hits = append(hits, secretHit{RuleID: r.ID, Label: r.Label, Line: lineNo})
+				break
 			}
-			if secretValueAllowed(secretFromMatch(m, r.Group), r) {
-				continue
-			}
-			fired[r.ID] = true
-			hits = append(hits, secretHit{RuleID: r.ID, Label: r.Label, Line: lineNo})
 		}
 	}
 	return hits
@@ -367,6 +374,16 @@ func shannonEntropy(s string) float64 {
 	return e
 }
 
+// secretGateActive is the one predicate for whether the commit gate
+// scans: team KBs are on unless secret_scan.disable, solo KBs are off
+// unless secret_scan.enable. A nil config means no KB resolved — off.
+func secretGateActive(cfg *ScribeConfig) bool {
+	if cfg == nil || cfg.SecretScan.Disable {
+		return false
+	}
+	return cfg.Team || cfg.SecretScan.Enable
+}
+
 // holdSecretFiles is the commit gate: scan every STAGED markdown file
 // and unstage any file with a hit, with a loud (secret-free) log line
 // per finding. Per-file hold, never a whole-run abort — sync runs on
@@ -391,7 +408,7 @@ func holdSecretFiles(root string, cfg *ScribeConfig) bool {
 		logMsg("git", "SECRET GATE: scribe.yaml unparseable — cannot determine team mode, refusing to commit until it is fixed: %v", cfg.LoadErr)
 		return false
 	}
-	if cfg == nil || !cfg.Team || cfg.SecretScan.Disable {
+	if !secretGateActive(cfg) {
 		return true
 	}
 	safe := true
@@ -465,14 +482,19 @@ func stagedTextFiles(root string) []string {
 // config, and a .sh/.py script in scripts/ is where a key gets pasted.
 var gateTextExts = map[string]bool{
 	".md": true, ".txt": true, ".json": true, ".yaml": true, ".yml": true,
-	".url": true, ".sh": true, ".py": true,
+	".url": true, ".sh": true, ".py": true, ".toml": true, ".env": true,
 }
 
-// gateTextPathspecs is the same set as git pathspecs for ls-files.
-var gateTextPathspecs = []string{"*.md", "*.txt", "*.json", "*.yaml", "*.yml", "*.url", "*.sh", "*.py"}
-
+// isGateTextFile reports whether the commit gate scans rel. Besides the
+// extension set, any dotenv-style file (.env, .env.local, .env.production)
+// is scanned: filepath.Ext(".env.local") is ".local", and a pasted
+// credential is exactly what those files hold.
 func isGateTextFile(rel string) bool {
-	return gateTextExts[strings.ToLower(filepath.Ext(rel))]
+	base := strings.ToLower(filepath.Base(rel))
+	if base == ".env" || strings.HasPrefix(base, ".env.") {
+		return true
+	}
+	return gateTextExts[filepath.Ext(base)]
 }
 
 // secretScanPathExempt applies secret_scan.allow_paths (KB-relative
@@ -508,10 +530,13 @@ func findSecretsInKB(root string, includeGeneric bool) []string {
 		return nil
 	}
 	if hasGit(root) {
-		lsArgs := append([]string{"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--"}, gateTextPathspecs...)
+		// No pathspecs: list everything and filter in Go so the
+		// extension/dotenv rule lives in exactly one place
+		// (isGateTextFile), same as stagedTextFiles.
+		lsArgs := []string{"ls-files", "-z", "--cached", "--others", "--exclude-standard"}
 		if out, err := runCmdRaw(root, "git", lsArgs...); err == nil {
 			for rel := range strings.SplitSeq(string(out), "\x00") {
-				if rel == "" {
+				if rel == "" || !isGateTextFile(rel) {
 					continue
 				}
 				content, rerr := os.ReadFile(filepath.Join(root, rel))

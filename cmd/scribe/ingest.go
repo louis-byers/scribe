@@ -579,7 +579,7 @@ func drainOne(root, queuePath string, dryRun bool) error {
 		}
 	}
 
-	logMsg("ingest", "fetching %s", rawURL)
+	logMsg("ingest", "fetching %s", redactURLToken(rawURL))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()

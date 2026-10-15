@@ -28,6 +28,73 @@ var ErrRateLimit = errors.New("rate limit hit")
 // shelling out to a real `claude` binary; production code never reassigns it.
 var runClaude = realRunClaude
 
+// claudeIsolationArgs is the flag set every `claude -p` call carries so
+// the subprocess sees only what scribe hands it. The KB root is the
+// working directory (cmd.Dir), and in a team KB that directory is
+// pushable by every member — so repo-level `.claude/settings.json`,
+// `.mcp.json`, hooks and skills must never load:
+//
+//   - --setting-sources "": ignore user, project and local settings
+//     files (permissions.allow in any of them would auto-approve tools
+//     the caller never granted).
+//   - --strict-mcp-config: no MCP servers from any config.
+//   - --disable-slash-commands: no skills.
+//   - disableAllHooks: the old `{"hooks":{}}` did NOT work — hooks maps
+//     merge across scopes, so user SessionEnd hooks still fired.
+//
+// All of these exist at the 2.1.236 floor scribe measures against.
+// `--bare` is deliberately not used: it forces ANTHROPIC_API_KEY auth and
+// breaks OAuth logins; `--restricted` is newer than the floor.
+func claudeIsolationArgs() []string {
+	return []string{
+		"--setting-sources", "",
+		"--strict-mcp-config",
+		"--disable-slash-commands",
+		"--settings", `{"disableAllHooks":true}`,
+	}
+}
+
+// toolBaseNames reduces permission patterns to the tool names they
+// grant: "Bash(git log:*)" → "Bash", "Read" → "Read". Order is kept,
+// duplicates dropped, so the --tools list is stable for drift tests.
+func toolBaseNames(tools []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range tools {
+		name := t
+		if i := strings.IndexByte(t, '('); i >= 0 {
+			name = t[:i]
+		}
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+// readOnlyGitTools grants the legacy tool-enabled modes git inspection
+// of ONE repository. A bare "Bash(git -C:*)" prefix-matched any git
+// command starting with `git -C`, including `git -C <repo> push`; these
+// patterns pin both the path and a read-only verb.
+func readOnlyGitTools(repoPath string) []string {
+	// The rules are joined with "," for --allowedTools and closed with
+	// ")"; either character inside the path would end the rule early and
+	// turn the remainder into a different grant. No git for such a path.
+	if strings.ContainsAny(repoPath, ",)\x00\n") {
+		logMsg("claude", "git tools withheld: repo path %q contains a rule delimiter", repoPath)
+		return nil
+	}
+	verbs := []string{"log", "show", "diff", "grep", "ls-files", "blame", "rev-parse", "status", "shortlog"}
+	out := make([]string, 0, len(verbs))
+	for _, v := range verbs {
+		out = append(out, "Bash(git -C "+repoPath+" "+v+":*)")
+	}
+	return out
+}
+
 func realRunClaude(ctx context.Context, root, prompt, model string, tools []string, timeout time.Duration) (string, error) {
 	// Daily metered output-token ceiling: read once per call so a
 	// long-running absorb that crosses the ceiling mid-run aborts at
@@ -52,15 +119,20 @@ func realRunClaude(ctx context.Context, root, prompt, model string, tools []stri
 		"--no-session-persistence",
 		"--add-dir", root,
 		"--model", model,
-		// Disable all hooks to avoid noise and SessionEnd failures in headless mode.
-		"--settings", `{"hooks":{}}`,
-		// Phase 3D.5: structured output gives us real token counts
-		// and total_cost_usd from the result envelope. Falls back to
-		// the text-mode classifier if the JSON parse fails (e.g.
-		// older claude CLI without the flag, or claude crashed
-		// before emitting an envelope).
-		"--output-format", "json",
 	}
+	// Built-in tool schema is exactly the base names the caller granted
+	// (`Bash(git log:*)` → Bash); with no grants, "" registers no tools
+	// at all. --allowedTools below then narrows auto-approval to the
+	// patterns, and anything outside them is denied in -p mode.
+	// `--tools` is variadic, so it must be followed by another flag.
+	args = append(args, "--tools", strings.Join(toolBaseNames(tools), ","))
+	args = append(args, claudeIsolationArgs()...)
+	// Phase 3D.5: structured output gives us real token counts
+	// and total_cost_usd from the result envelope. Falls back to
+	// the text-mode classifier if the JSON parse fails (e.g.
+	// older claude CLI without the flag, or claude crashed
+	// before emitting an envelope).
+	args = append(args, "--output-format", "json")
 	if len(tools) > 0 {
 		// Belt-and-suspenders on the second pair: Go owns
 		// wiki/_sessions_log.json (recordSessionProcessed); deny the model

@@ -553,9 +553,5 @@ func appendAbsorbBlockQuiet(cfgPath, existing string) {
 		merged += "\n"
 	}
 	merged += absorbDefaultYAMLBlock()
-	tmp := cfgPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(merged), 0o644); err != nil {
-		return
-	}
-	_ = os.Rename(tmp, cfgPath)
+	_ = writeFileAtomic(cfgPath, []byte(merged), 0o644)
 }

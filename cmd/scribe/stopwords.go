@@ -73,12 +73,16 @@ func stopWordRules(cfg *ScribeConfig) (hold, mask []stopWordMatcher, redaction s
 		shared = cfg.StopWords
 	}
 
+	// The personal file wins: in a team KB the shared scribe.yaml is
+	// pushable by every member, and the redaction string is what every
+	// personal mask hit turns into. Letting the repo override it would
+	// let a pushed value defeat a member's own masks (see below).
 	redaction = defaultRedaction
 	switch {
-	case shared.Redaction != "":
-		redaction = shared.Redaction
 	case user.StopWords.Redaction != "":
 		redaction = user.StopWords.Redaction
+	case shared.Redaction != "":
+		redaction = shared.Redaction
 	}
 
 	hold = compileStopWords(append(append([]string{}, shared.Hold...), user.StopWords.Hold...))
@@ -201,7 +205,11 @@ func applyStopWords(content []byte, hold, mask []stopWordMatcher, redaction stri
 			}
 			for i := range mask {
 				if mask[i].re.Match(processed) {
-					processed = mask[i].re.ReplaceAll(processed, []byte(redaction))
+					// Literal, not template: ReplaceAll expands `$0`/`${1}`
+					// in the replacement, so a redaction string of "$0" would
+					// put the masked word straight back while still logging
+					// the file as redacted and staging it.
+					processed = mask[i].re.ReplaceAllLiteral(processed, []byte(redaction))
 					changed = true
 					if !maskedSeen[mask[i].label] {
 						maskedSeen[mask[i].label] = true

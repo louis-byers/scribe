@@ -124,13 +124,8 @@ article_count: %%d
 	}
 
 	// Atomic write
-	tmp := outPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(result), 0o644); err != nil {
-		return fmt.Errorf("write tmp: %w", err)
-	}
-	if err := os.Rename(tmp, outPath); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("rename: %w", err)
+	if err := writeFileAtomic(outPath, []byte(result), 0o644); err != nil {
+		return err
 	}
 
 	fmt.Printf("wrote %s (%d articles)\n", relPath(root, outPath), totalArticles)

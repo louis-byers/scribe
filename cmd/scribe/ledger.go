@@ -62,11 +62,7 @@ func (l *extractionLedger) save() error {
 	if err != nil {
 		return err
 	}
-	tmp := l.path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, l.path)
+	return writeFileAtomic(l.path, append(data, '\n'), 0o644)
 }
 
 // record stores the extraction of key at sha by contributor `by`.

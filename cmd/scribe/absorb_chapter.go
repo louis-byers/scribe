@@ -43,7 +43,7 @@ import (
 // a fallback (and absorbDenseTwoPass uses it directly when the source
 // isn't chaptered).
 func (s *SyncCmd) runPass1Whole(ctx context.Context, root, rawFile, planFile string, cfg AbsorbConfig) error {
-	rawBody, err := os.ReadFile(rawFile)
+	rawBody, err := readRegularFile(rawFile)
 	if err != nil {
 		return fmt.Errorf("pass1: read raw article: %w", err)
 	}
@@ -414,7 +414,7 @@ func mergeStringSet(a, b []string) []string {
 // pattern. Empty result is acceptable — the prompt template just
 // renders "{{SOURCE_TITLE}}" verbatim, which Claude tolerates.
 func readArticleTitle(rawFile string) string {
-	data, err := os.ReadFile(rawFile)
+	data, err := readRegularFile(rawFile)
 	if err != nil {
 		return ""
 	}

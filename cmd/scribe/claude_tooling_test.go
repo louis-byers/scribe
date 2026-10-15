@@ -18,7 +18,8 @@ func TestIsClaudeToolingRelPath(t *testing.T) {
 		{".claude/commands/ship.md", true},
 		{".claude/skills/kb/SKILL.md", true},
 		{".claude/output-styles/terse.md", true},
-		{".claude/worktrees/feature/docs/design.md", true},
+		// Nested checkouts are nestedCheckout's job, not this list's.
+		{".claude/worktrees/feature/docs/design.md", false},
 		{"pkg/.claude/rules/x.md", true},
 		// Knowledge the extract prompts read on purpose.
 		{".claude/plans/migration.md", false},
@@ -93,13 +94,13 @@ func TestGitChangedFilesSkipsClaudeToolingOnBothPaths(t *testing.T) {
 }
 
 // Outside git, gitChangedFiles falls back to a filesystem walk, which must
-// not descend into a worktree checkout or tooling dirs.
+// not descend into tooling dirs.
 func TestGitChangedFilesFallbackWalkSkipsClaudeTooling(t *testing.T) {
 	dir := t.TempDir()
 	writeTestArticle(t, dir, "docs/design.md", "knowledge\n")
 	writeTestArticle(t, dir, ".claude/plans/migration.md", "a plan\n")
 	writeTestArticle(t, dir, ".claude/rules/angular.md", "tooling\n")
-	writeTestArticle(t, dir, ".claude/worktrees/feature/docs/design.md", "duplicate checkout\n")
+	writeTestArticle(t, dir, ".claude/skills/kb/SKILL.md", "tooling\n")
 
 	got := relPaths(t, dir, gitChangedFiles(dir, "", []string{"*.md"}))
 	want := []string{".claude/plans/migration.md", "docs/design.md"}
@@ -113,7 +114,7 @@ func TestFindKnowledgeDirsSkipsClaudeTooling(t *testing.T) {
 	writeTestArticle(t, dir, "docs/design.md", "knowledge\n")
 	writeTestArticle(t, dir, ".claude/plans/migration.md", "a plan\n")
 	writeTestArticle(t, dir, ".claude/rules/angular.md", "tooling\n")
-	writeTestArticle(t, dir, ".claude/worktrees/feature/docs/design.md", "duplicate checkout\n")
+	writeTestArticle(t, dir, ".claude/skills/kb/SKILL.md", "tooling\n")
 
 	dirs, err := findKnowledgeDirs(dir)
 	if err != nil {
@@ -126,9 +127,10 @@ func TestFindKnowledgeDirsSkipsClaudeTooling(t *testing.T) {
 	}
 }
 
-// A walk rooted inside a tooling dir (a worktree checkout) still walks.
+// A walk rooted inside a tooling dir still walks: only directories below
+// the root are skipped.
 func TestFindKnowledgeDirsWalksRootInsideClaudeTooling(t *testing.T) {
-	root := filepath.Join(t.TempDir(), claudeToolingDir, "worktrees")
+	root := filepath.Join(t.TempDir(), claudeToolingDir, "skills")
 	writeTestArticle(t, root, "docs/design.md", "knowledge\n")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -150,7 +152,7 @@ func TestCollectKnowledgeFilesSkipsClaudeTooling(t *testing.T) {
 	writeTestArticle(t, dir, "docs/design.md", "knowledge\n")
 	writeTestArticle(t, dir, ".claude/plans/migration.md", "a plan\n")
 	writeTestArticle(t, dir, ".claude/rules/angular.md", "tooling\n")
-	writeTestArticle(t, dir, ".claude/worktrees/feature/docs/design.md", "duplicate checkout\n")
+	writeTestArticle(t, dir, ".claude/skills/kb/SKILL.md", "tooling\n")
 
 	got := collectKnowledgeFiles(dir)
 	want := []string{"./.claude/plans/migration.md", "./docs/design.md"}
@@ -159,17 +161,17 @@ func TestCollectKnowledgeFilesSkipsClaudeTooling(t *testing.T) {
 	}
 }
 
-// assess samples a bounded tree, and .claude sorts first, so worktree
-// copies could otherwise crowd out the real source tree.
+// assess samples a bounded tree, and .claude sorts first, so tooling
+// files would otherwise take sample slots from the real source tree.
 func TestAssessSourceTreeSkipsClaudeTooling(t *testing.T) {
 	dir := t.TempDir()
 	writeTestArticle(t, dir, "lib/app.ex", "defmodule App do end\n")
 	writeTestArticle(t, dir, ".claude/plans/migration.md", "a plan\n")
-	writeTestArticle(t, dir, ".claude/worktrees/feature/lib/app.ex", "duplicate checkout\n")
+	writeTestArticle(t, dir, ".claude/skills/kb/SKILL.md", "tooling\n")
 
 	tree := assessSourceTree(dir, 200)
-	if strings.Contains(tree, "worktrees") {
-		t.Errorf("assess tree includes a worktree checkout:\n%s", tree)
+	if strings.Contains(tree, "skills") {
+		t.Errorf("assess tree includes a tooling dir:\n%s", tree)
 	}
 	for _, want := range []string{"lib/app.ex", ".claude/plans/migration.md"} {
 		if !strings.Contains(tree, want) {

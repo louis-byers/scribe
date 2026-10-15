@@ -298,6 +298,20 @@ func extractTitleFast(content []byte) string {
 
 // walkArticles walks all .md files in wiki dirs, skipping meta files and _-prefixed files.
 // Use this for title collection and article enumeration.
+// readRegularFile is os.ReadFile that refuses symlinks. Use it for any
+// path that content from outside this process can place: raw/ and wiki/
+// in a team KB, and the README/CLAUDE.md of a project being extracted.
+func readRegularFile(path string) ([]byte, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s: not a regular file (symlink or special) — refusing to read", path)
+	}
+	return os.ReadFile(path)
+}
+
 func walkArticles(root string, fn func(path string, content []byte) error) error {
 	return walkMarkdown(root, true, fn)
 }
@@ -319,6 +333,11 @@ func walkMarkdown(root string, skipUnderscored bool, fn func(path string, conten
 				return nil //nolint:nilerr // skip unreadable, continue walk
 			}
 			if info.IsDir() {
+				return nil
+			}
+			// Walk uses Lstat, so a symlinked file shows up here with its
+			// link mode; ReadFile would follow it out of the KB.
+			if info.Mode()&os.ModeSymlink != 0 {
 				return nil
 			}
 			if !strings.HasSuffix(path, ".md") {

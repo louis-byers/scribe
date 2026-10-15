@@ -676,12 +676,7 @@ func saveCaptureState(path string, st *captureState) error {
 		return err
 	}
 	data = append(data, '\n')
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+	if err := writeFileAtomic(path, data, 0o644); err != nil {
 		return err
 	}
 	return nil

@@ -11,15 +11,13 @@ const claudeToolingDir = ".claude"
 
 // claudeToolingSubdirs are the .claude/ subdirectories that hold Claude Code
 // tooling — agent, command, rule, skill, hook, plugin and output-style
-// definitions, and worktree checkouts — rather than project knowledge.
-// Extraction skips them.
+// definitions — rather than project knowledge. Extraction skips them.
 //
 // .claude/ as a whole is NOT excluded: its other subdirectories (research/,
 // plans/, analysis/, solutions/, lessons/, …) are knowledge sources the
 // extract and assess prompts read on purpose, and .claude/<kb>/ holds drop
-// files. worktrees/ matters most in practice: each entry is a full checkout
-// of the same repo, so walking it extracts the project's docs once per
-// active worktree.
+// files. .claude/worktrees/ is not listed here: walks already skip it, along
+// with every other nested checkout, through nestedCheckout (#131).
 var claudeToolingSubdirs = map[string]bool{
 	"agents":        true,
 	"commands":      true,
@@ -28,7 +26,6 @@ var claudeToolingSubdirs = map[string]bool{
 	"hooks":         true,
 	"plugins":       true,
 	"output-styles": true,
-	"worktrees":     true,
 }
 
 // claudeToolingPromptList renders claudeToolingSubdirs for the extract

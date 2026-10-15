@@ -244,6 +244,11 @@ func appendErrorRecord(root string, rec ErrorRecord) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
+	// The tails are raw subprocess output: a provider error that echoes
+	// the request URL, or a fetch that logs it, carries the token.
+	rec.Err = redactURLToken(rec.Err)
+	rec.StderrTail = redactURLToken(rec.StderrTail)
+	rec.StdoutTail = redactURLToken(rec.StdoutTail)
 	day := time.Now().UTC().Format("2006-01-02")
 	dayFile := filepath.Join(dir, day+".jsonl")
 	f, err := os.OpenFile(dayFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

@@ -110,13 +110,8 @@ func (b *BacklinksCmd) Run() error {
 	}
 
 	// Atomic write
-	tmp := outPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("write tmp: %w", err)
-	}
-	if err := os.Rename(tmp, outPath); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("rename: %w", err)
+	if err := writeFileAtomic(outPath, data, 0o644); err != nil {
+		return err
 	}
 
 	fmt.Printf("wrote %s (%d targets)\n", relPath(root, outPath), len(backlinks))

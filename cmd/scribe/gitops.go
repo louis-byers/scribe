@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,10 @@ func gitRemoteURL(repoPath string) string {
 	return runCmd(repoPath, "git", "remote", "get-url", "origin")
 }
 
+// gitSHARE is the only shape a manifest last_sha may take. Abbreviated
+// (7+) and full SHA-1/SHA-256 names pass; option-looking strings do not.
+var gitSHARE = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
+
 // gitChangedFiles returns files changed between two SHAs (or all files if oldSHA is empty).
 func gitChangedFiles(repoPath, oldSHA string, patterns []string) []string {
 	if oldSHA == "" {
@@ -44,6 +49,14 @@ func gitChangedFiles(repoPath, oldSHA string, patterns []string) []string {
 		return excludeClaudeTooling(repoPath, findFiles(repoPath, patterns))
 	}
 
+	// oldSHA comes from scripts/projects.json and is placed BEFORE the
+	// `--` separator, so anything that is not a hex object name
+	// (`--output=...`, `-c core.pager=...`) would be parsed by git as an
+	// option. Refuse the diff and fall back to the full listing instead.
+	if !gitSHARE.MatchString(oldSHA) {
+		logMsg("git", "ignoring malformed last_sha for %s — listing all files", repoPath)
+		return gitChangedFiles(repoPath, "", patterns)
+	}
 	args := make([]string, 0, 7+len(patterns))
 	args = append(args, "-C", repoPath, "diff", "--name-only", oldSHA, "HEAD", "--")
 	args = append(args, patterns...)
@@ -146,6 +159,7 @@ func pullRebase(repoPath string) (ok bool, pulled bool, err error) {
 		resolved, rErr := autoResolveDerivedConflicts(repoPath)
 		if resolved {
 			logMsg("git", "pull conflict on derived file(s) auto-resolved — content regenerates after pull")
+			invalidateRepoTrackedCache()
 			afterSHA := gitSHA(repoPath)
 			return true, beforeSHA != "" && afterSHA != "" && beforeSHA != afterSHA, nil
 		}
@@ -154,6 +168,7 @@ func pullRebase(repoPath string) (ok bool, pulled bool, err error) {
 		}
 		return false, false, fmt.Errorf("%s", firstLine(msg))
 	}
+	invalidateRepoTrackedCache()
 	afterSHA := gitSHA(repoPath)
 	return true, beforeSHA != "" && afterSHA != "" && beforeSHA != afterSHA, nil
 }
@@ -472,7 +487,7 @@ func findFiles(root string, patterns []string) []string {
 			return nil //nolint:nilerr // skip unreadable, continue walk
 		}
 		if info.IsDir() {
-			if excludeDirs[info.Name()] || isClaudeToolingDir(root, path) {
+			if excludeDirs[info.Name()] || nestedCheckout(root, path) || isClaudeToolingDir(root, path) {
 				return filepath.SkipDir
 			}
 			return nil

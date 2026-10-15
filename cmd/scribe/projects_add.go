@@ -349,11 +349,10 @@ func appendIncludePath(filePath, path string) (bool, error) {
 		return false, err
 	}
 
-	tmp := filePath + ".tmp"
-	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
+	if err := writeFileAtomic(filePath, buf.Bytes(), 0o644); err != nil {
 		return false, err
 	}
-	return true, os.Rename(tmp, filePath)
+	return true, nil
 }
 
 // mappingValue returns the value node for key in a mapping node, or nil.

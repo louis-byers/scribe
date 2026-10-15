@@ -8,7 +8,8 @@ import (
 	"testing"
 )
 
-// TestApplyMetaSessionsLogAppend records a session ID into wiki/_sessions_log.json.
+// TestApplyMetaSessionsLogAppend: the op is accepted (no error) but Go owns
+// the sessions log, so a model-supplied id must NOT be recorded.
 func TestApplyMetaSessionsLogAppend(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "wiki"), 0o755); err != nil {
@@ -27,6 +28,11 @@ func TestApplyMetaSessionsLogAppend(t *testing.T) {
 	if len(res.Errors) > 0 {
 		t.Fatalf("unexpected errors: %v", res.Errors)
 	}
+	if _, err := os.Stat(filepath.Join(root, "wiki", "_sessions_log.json")); err == nil {
+		t.Fatal("model-supplied sessions_log_append must not touch wiki/_sessions_log.json")
+	}
+	// The Go-side writer is the only path.
+	recordSessionProcessed(root, "abc-123")
 	data, err := os.ReadFile(filepath.Join(root, "wiki", "_sessions_log.json"))
 	if err != nil {
 		t.Fatalf("read sessions log: %v", err)
@@ -38,7 +44,7 @@ func TestApplyMetaSessionsLogAppend(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if _, ok := got.Processed["abc-123"]; !ok {
-		t.Fatalf("session not recorded: %s", string(data))
+		t.Fatalf("session not recorded by recordSessionProcessed: %s", string(data))
 	}
 }
 

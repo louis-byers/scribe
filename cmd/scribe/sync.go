@@ -614,11 +614,7 @@ func saveJSONMap(path string, m map[string]any) error {
 		return err
 	}
 	data = append(data, '\n')
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeFileAtomic(path, data, 0o644)
 }
 
 // loadJSONMapStrict is loadJSONMap that distinguishes an absent/empty file

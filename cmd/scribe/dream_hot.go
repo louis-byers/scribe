@@ -316,7 +316,9 @@ func runHotDream(root string, cfg *ScribeConfig, domainOverride string, dryRun b
 	if err != nil {
 		return fmt.Errorf("dream-hot: parse envelope: %w", err)
 	}
-	res, err := applyWikiActions(root, env, entityWriterApplyOptions())
+	opts := entityWriterApplyOptions()
+	opts.AllowedDomains = []string{domain} // the packet held one domain; so does the write scope
+	res, err := applyWikiActions(root, env, opts)
 	if err != nil {
 		return fmt.Errorf("dream-hot: apply actions: %w", err)
 	}

@@ -758,6 +758,7 @@ func loadConfig(root string) *ScribeConfig {
 	// so local overrides win over both the repo file and the revert.
 	enforceConfigTrust(root, cfg)
 	applyLocalOverrides(root, cfg)
+	sanitizeNameFields(root, cfg)
 
 	// Expand ~ in paths.
 	cfg.ClaudeProjectsDir = expandHome(cfg.ClaudeProjectsDir)
@@ -790,6 +791,46 @@ func loadConfig(root string) *ScribeConfig {
 	// `--dry-run` silently rewrote the user's config (Codex finding,
 	// 2026-05-15). Diagnostics and dry runs must not mutate state.
 	return cfg
+}
+
+// safePathSegment reports whether s can be joined into a KB path as ONE
+// directory or file name: no separators, no NUL, not "." or "..". The
+// fields it guards are not trust-locked (they are labels, and the shared
+// list changes constantly), so a pushed value must still be unable to
+// steer a write or a glob outside the directory it names.
+func safePathSegment(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00")
+}
+
+// sanitizeNameFields drops config values that are used as path
+// segments but fail safePathSegment: domains (projects/<domain>/…),
+// kb_name (.claude/<kb_name>/*.md in every discovered project) and
+// meta.rolling_targets (projects/<domain>/<target>.md). Dropping, not
+// failing: these are repo-controlled strings and a bad one must not
+// brick read-only commands — it just stops being a valid name.
+func sanitizeNameFields(root string, cfg *ScribeConfig) {
+	keep := cfg.Domains[:0:0]
+	for _, d := range cfg.Domains {
+		if safePathSegment(d) {
+			keep = append(keep, d)
+			continue
+		}
+		logAutoFlipOnce("bad-domain:"+root+":"+d, "config", "domains entry %q is not a plain name — ignored", d)
+	}
+	cfg.Domains = keep
+	if cfg.KBName != "" && !safePathSegment(cfg.KBName) {
+		logAutoFlipOnce("bad-kb-name:"+root, "config", "kb_name %q is not a plain name — using the directory name", cfg.KBName)
+		cfg.KBName = ""
+	}
+	targets := cfg.Meta.RollingTargets[:0:0]
+	for _, t := range cfg.Meta.RollingTargets {
+		if safePathSegment(t) {
+			targets = append(targets, t)
+			continue
+		}
+		logAutoFlipOnce("bad-rolling-target:"+root+":"+t, "config", "meta.rolling_targets entry %q is not a plain name — ignored", t)
+	}
+	cfg.Meta.RollingTargets = targets
 }
 
 // AllDomains returns the merged set of user-configured + universal domains.

@@ -98,6 +98,7 @@ resolve_tag() {
 }
 
 build_from_source() {
+    tag="$1"
     if ! command -v go >/dev/null 2>&1; then
         echo "no release binary available and no Go toolchain found — aborting" >&2
         exit 1
@@ -105,7 +106,12 @@ build_from_source() {
     echo "Falling back to: go install from source (requires CGO for sqlite_fts5)"
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
-    git clone --depth=1 "https://github.com/${REPO}.git" "$tmp/src"
+    # Pin the clone to the resolved release tag: a fallback that silently
+    # built main HEAD would ignore --version and skip the release gate.
+    if ! git clone --depth=1 --branch "$tag" "https://github.com/${REPO}.git" "$tmp/src"; then
+        echo "tag $tag not found in ${REPO} — refusing to build from an unpinned checkout" >&2
+        exit 1
+    fi
     (cd "$tmp/src" && CGO_ENABLED=1 go build -tags "sqlite_fts5" -o "$bindir/scribe" ./cmd/scribe)
     echo "Built $bindir/scribe from source."
 }
@@ -151,7 +157,7 @@ main() {
         echo "Installed $bindir/scribe ($tag, sha256 verified)"
     else
         echo "Release asset not reachable; trying source build." >&2
-        build_from_source
+        build_from_source "$tag"
     fi
 
     case ":${PATH}:" in

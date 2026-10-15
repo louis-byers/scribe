@@ -41,7 +41,8 @@ team: true
 # printed. Add `scribe:allow` on a line to mark a placeholder.
 # Trust-locked: a pushed change here can't weaken another member's gate.
 # secret_scan:
-#   disable: false
+#   disable: false        # team KBs: gate is on unless disabled
+#   enable: false         # solo KBs: gate is off unless enabled
 #   generic: false        # noisy generic key=value rule, entropy-gated
 #   allow_paths: []       # KB-relative globs to exempt, e.g. wiki/examples
 

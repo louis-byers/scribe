@@ -177,14 +177,10 @@ func mineSessionEnvelope(ctx context.Context, root, dbPath, sessionID string, pr
 	} else {
 		logMsg("sync", "%s envelope %s: applied %d action(s)", opLabel, sessionID, len(res.Applied))
 	}
-	// Belt-and-suspenders: even if the model forgot the
-	// sessions_log_append meta op, we record the session as processed
-	// so the next run doesn't re-queue it. applyMetaAction is
-	// idempotent — re-recording an existing entry just updates the
-	// timestamp.
-	if !envelopeIncludesSessionLog(env, sessionID) {
-		recordSessionProcessed(root, sessionID)
-	}
+	// Go owns wiki/_sessions_log.json: the model's sessions_log_append is
+	// accepted but never applied (see applyMetaAction), so the session
+	// that was actually mined is recorded here, unconditionally.
+	recordSessionProcessed(root, sessionID)
 	return false, nil
 }
 
@@ -202,18 +198,6 @@ func promptBaseForSessionLabel(label string) string {
 	default:
 		return "session-mine"
 	}
-}
-
-// envelopeIncludesSessionLog reports whether the envelope contains a
-// sessions_log_append meta op for the target session id. Used by the
-// belt-and-suspenders guard above.
-func envelopeIncludesSessionLog(env WikiActionEnvelope, sessionID string) bool {
-	for _, m := range env.Meta {
-		if m.Op == "sessions_log_append" && (m.SessionID == sessionID || m.SessionID == "") {
-			return true
-		}
-	}
-	return false
 }
 
 // lookupSessionProjectPath returns the project_path column for a

@@ -104,7 +104,7 @@ func assessReadTopDocs(projectPath string, maxChars int) string {
 	var sb strings.Builder
 	for _, c := range candidates {
 		p := filepath.Join(projectPath, c)
-		data, err := os.ReadFile(p)
+		data, err := readRegularFile(p)
 		if err != nil {
 			continue
 		}
@@ -139,7 +139,7 @@ func assessSourceTree(projectPath string, maxEntries int) string {
 			return nil //nolint:nilerr // unreadable entry: skip it, keep sampling the rest of the tree
 		}
 		if info.IsDir() {
-			if excludedDirNames[info.Name()] || isClaudeToolingDir(projectPath, path) {
+			if excludedDirNames[info.Name()] || nestedCheckout(projectPath, path) || isClaudeToolingDir(projectPath, path) {
 				return filepath.SkipDir
 			}
 			return nil

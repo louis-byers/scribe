@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -87,7 +86,7 @@ func deepReadFilesForPrompt(paths []string, maxChars int) string {
 	}
 	var sb strings.Builder
 	for _, p := range paths {
-		data, err := os.ReadFile(p)
+		data, err := readRegularFile(p)
 		if err != nil {
 			continue
 		}

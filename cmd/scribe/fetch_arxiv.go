@@ -148,7 +148,7 @@ func arxivMetadataAttempt(ctx context.Context, id string) (arxivMeta, time.Durat
 	}
 
 	var feed atomFeed
-	if err := xml.NewDecoder(resp.Body).Decode(&feed); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, maxHTTPBodyBytes)).Decode(&feed); err != nil {
 		return arxivMeta{}, 0, fmt.Errorf("arxiv api decode: %w", err)
 	}
 	if len(feed.Entries) == 0 {
@@ -292,7 +292,7 @@ func fetchArxivPDF(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create pdf: %w", err)
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	if _, err := copyBounded(f, resp.Body); err != nil {
 		f.Close()
 		return "", fmt.Errorf("write pdf: %w", err)
 	}

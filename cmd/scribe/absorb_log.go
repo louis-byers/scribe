@@ -153,13 +153,8 @@ func saveAbsorbLog(path string, log AbsorbLog) error {
 	if err != nil {
 		return fmt.Errorf("marshal absorb log: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("write absorb log tmp: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename absorb log: %w", err)
+	if err := writeFileAtomic(path, data, 0o644); err != nil {
+		return fmt.Errorf("write absorb log: %w", err)
 	}
 	return nil
 }

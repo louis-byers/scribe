@@ -153,6 +153,12 @@ func (w *WriteCmd) runRolling(root, body string) error {
 	rel := filepath.Join("projects", w.Project, filename)
 	target := filepath.Join(root, rel)
 
+	// Same containment rule as --path above: --project is joined into
+	// the KB and must not climb out of projects/.
+	if !pathWithinRoot(filepath.Join(root, "projects"), target) || filepath.Clean(target) == filepath.Clean(filepath.Join(root, "projects")) {
+		return fmt.Errorf("--project %q escapes the KB projects directory", w.Project)
+	}
+
 	if !fileExists(target) {
 		return fmt.Errorf("%s does not exist — create it manually first with rolling:true frontmatter", rel)
 	}

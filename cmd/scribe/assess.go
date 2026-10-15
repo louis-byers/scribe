@@ -233,11 +233,11 @@ func (a *AssessCmd) runTrack(ctx context.Context, root string, t assessTrack, en
 	// Track tools: broad Read/Glob/Grep in the project, Write only for
 	// the track's dedicated output file (enforced by prompt, not by
 	// claude flags — the prompt names the exact path).
-	tools := []string{
+	tools := append([]string{
 		"Read", "Write", "Glob", "Grep",
-		"Bash(git log:*)", "Bash(git -C:*)", "Bash(git grep:*)",
+		"Bash(git log:*)", "Bash(git grep:*)",
 		"Bash(ls:*)", "Bash(find:*)", "Bash(wc:*)",
-	}
+	}, readOnlyGitTools(entry.Path)...)
 	timeout := time.Duration(a.Timeout) * time.Second
 	_, err = runClaude(withOpLabel(ctx, "assess-track"), root, prompt, a.Model, tools, timeout)
 	return err

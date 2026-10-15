@@ -1056,7 +1056,8 @@ runs `init --bind --yes` inside it. Teammates do not each create a new team KB.
      value itself); everything clean still commits, so cron keeps flowing. Mark
      deliberate placeholders with `scribe:allow` on the line, exempt paths via
      `secret_scan.allow_paths`, or opt into the noisier generic
-     `key = "value"` rule with `secret_scan.generic: true`. The `secret_scan`
+     `key = "value"` rule with `secret_scan.generic: true`. Solo KBs can
+     switch the same gate on with `secret_scan.enable: true`. The `secret_scan`
      block is trust-locked like `sources` — a pushed change weakening it warns
      instead of applying. `scribe doctor` also scans the whole KB on disk, so
      leaks that predate the gate surface too.

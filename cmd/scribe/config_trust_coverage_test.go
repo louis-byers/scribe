@@ -66,7 +66,6 @@ var nonSensitiveAllowlist = map[string]bool{
 	"Sync.CheckpointInterval":               true,
 	"Sync.MaxExtractFiles":                  true,
 	"Sync.CommitDebounceMinutes":            true,
-	"Sync.AutoApprove":                      true,
 	"Sync.AlwaysPullBeforeSync":             true,
 	"Sync.DailyAnthropicOutputTokenCeiling": true,
 	"Sync.DailyOutputTokenCeiling":          true,

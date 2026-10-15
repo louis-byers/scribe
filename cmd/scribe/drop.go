@@ -96,6 +96,9 @@ func (d *DropCmd) Run() error {
 	if slug == "" {
 		return errors.New("--title produced an empty slug; pass --slug explicitly")
 	}
+	if err := validateDropNames(slug, kbNameResolved); err != nil {
+		return err
+	}
 
 	dropDir := filepath.Join(cwd, ".claude", kbNameResolved)
 	target := filepath.Join(dropDir, fmt.Sprintf("%s-%s.md", date, slug))
@@ -148,6 +151,19 @@ func (d *DropCmd) validateStatic() error {
 	}
 	if d.Date != "" && !dateRE.MatchString(d.Date) {
 		return fmt.Errorf("--date %q not in YYYY-MM-DD format", d.Date)
+	}
+	return nil
+}
+
+// validateDropNames keeps --slug and the KB name to single path
+// segments: both are joined under <cwd>/.claude/, and a `../` in either
+// would write the drop file somewhere else entirely.
+func validateDropNames(slug, kb string) error {
+	if !safePathSegment(slug) {
+		return fmt.Errorf("--slug %q must be a plain file name (no path separators)", slug)
+	}
+	if !safePathSegment(kb) {
+		return fmt.Errorf("kb name %q must be a plain directory name (no path separators)", kb)
 	}
 	return nil
 }

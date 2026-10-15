@@ -146,16 +146,22 @@ func (a *anthropicProvider) Generate(ctx context.Context, prompt string) (string
 	}
 
 	// Prompt over stdin — see realRunClaude for why argv is off-limits.
-	args := []string{
+	args := make([]string, 0, 16)
+	args = append(args,
 		"-p",
 		"--no-session-persistence",
 		"--model", a.model,
-		// No tools — this path is for pure text generation.
-		"--settings", `{"hooks":{}}`,
-		// Phase 3D.5: structured output → real token counts in the
-		// ledger. Same fallback strategy as runClaude.
-		"--output-format", "json",
-	}
+		// No tools — this path is for pure text generation. Without
+		// `--tools ""` the built-in Read/Glob/Grep (and anything a
+		// settings file auto-approves) stay callable, so a prompt
+		// injection in a fetched article could read local files into
+		// the answer. Variadic flag: keep another flag right after it.
+		"--tools", "",
+	)
+	args = append(args, claudeIsolationArgs()...)
+	// Phase 3D.5: structured output → real token counts in the
+	// ledger. Same fallback strategy as runClaude.
+	args = append(args, "--output-format", "json")
 	started := time.Now()
 	op := opLabelFromContext(ctx)
 	entry := CostEntry{
@@ -370,7 +376,7 @@ func (o *ollamaProvider) listedModels(ctx context.Context) ([]string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxHTTPBodyBytes))
 		return nil, fmt.Errorf("ollama %d: %s", resp.StatusCode, string(body))
 	}
 	var tags struct {
@@ -439,7 +445,7 @@ func (o *ollamaProvider) pull(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxHTTPBodyBytes))
 		return fmt.Errorf("ollama pull http %d: %s", resp.StatusCode, string(b))
 	}
 	scanner := bufio.NewScanner(resp.Body)
@@ -580,7 +586,7 @@ func (o *ollamaProvider) generate(ctx context.Context, prompt string, jsonMode b
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := readBodyBounded(resp.Body)
 	if err != nil {
 		entry.OK = false
 		entry.ErrKind = "other"
