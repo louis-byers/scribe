@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A synthetic composite envelope. The field names and shapes match real
@@ -134,5 +139,125 @@ func TestDenialSample_RedactsURLTokens(t *testing.T) {
 	d := claudeDenial{ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"curl https://api.example.com/x?token=s3cr3t"}`)}
 	if got := denialSample(d); strings.Contains(got, "s3cr3t") {
 		t.Errorf("sample leaked a URL token: %q", got)
+	}
+}
+
+// installEnvelopeClaude puts a `claude` shim first on PATH that drains stdin,
+// prints envelope on stdout, and exits with exitCode — the shape of a real
+// claude -p run, including the failure case where the CLI exits 1 but still
+// prints a full result envelope (e.g. an api_error mid-run).
+func installEnvelopeClaude(t *testing.T, envelope string, exitCode int) {
+	t.Helper()
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "envelope.json")
+	if err := os.WriteFile(envFile, []byte(envelope), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncat >/dev/null\ncat \"" + envFile + "\"\nexit " + strconv.Itoa(exitCode) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// checkBudget also reads the real ~/.config/scribe/config.yaml and every
+	// registered KB's ledger; bypass it so a real machine ceiling can't fail
+	// these tests.
+	t.Setenv(budgetBypassEnv, "1")
+}
+
+// lastCostEntry reads the newest row of today's cost ledger under root.
+func lastCostEntry(t *testing.T, root string) CostEntry {
+	t.Helper()
+	day := time.Now().UTC().Format("2006-01-02")
+	data, err := os.ReadFile(filepath.Join(root, "output", "costs", day+".jsonl"))
+	if err != nil {
+		t.Fatalf("no cost ledger written: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var got CostEntry
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &got); err != nil {
+		t.Fatalf("last ledger line is not JSON: %v", err)
+	}
+	return got
+}
+
+// failingEnvelope is a non-zero-exit run that still printed a full
+// envelope — the shape of the dream failures that hid a model change.
+const failingEnvelope = `{"type":"result","subtype":"success","is_error":true,` +
+	`"num_turns":4,"terminal_reason":"api_error","result":"API Error: Connection lost",` +
+	`"usage":{"input_tokens":0,"output_tokens":0},` +
+	`"modelUsage":{"claude-sonnet-5-5":{}},` +
+	`"permission_denials":[{"tool_name":"Bash","tool_input":{"command":"python3 x.py"}}]}`
+
+func TestRealRunClaude_RecordsTelemetryOnSuccess(t *testing.T) {
+	root := testKB(t, "")
+	installEnvelopeClaude(t, telemetryEnvelope, 0)
+	if _, err := realRunClaude(context.Background(), root, "prompt", "sonnet", []string{"Read"}, 30*time.Second); err != nil {
+		t.Fatalf("realRunClaude: %v", err)
+	}
+	got := lastCostEntry(t, root)
+	if !got.OK || got.Denials != 4 || got.NumTurns == nil || *got.NumTurns != 45 {
+		t.Errorf("success row missing telemetry: %+v", got)
+	}
+	if !slices.Contains(got.ResolvedModels, "claude-sonnet-5-5") {
+		t.Errorf("ResolvedModels = %v", got.ResolvedModels)
+	}
+}
+
+func TestRealRunClaude_RecordsTelemetryOnNonZeroExit(t *testing.T) {
+	root := testKB(t, "")
+	installEnvelopeClaude(t, failingEnvelope, 1)
+	if _, err := realRunClaude(context.Background(), root, "prompt", "sonnet", []string{"Read"}, 30*time.Second); err == nil {
+		t.Fatal("expected an error from a non-zero exit")
+	}
+	got := lastCostEntry(t, root)
+	if got.OK || got.ErrKind != "other" {
+		t.Errorf("error classification changed: ok=%v kind=%q", got.OK, got.ErrKind)
+	}
+	if !slices.Equal(got.ResolvedModels, []string{"claude-sonnet-5-5"}) {
+		t.Errorf("ResolvedModels on failure = %v, want [claude-sonnet-5-5]", got.ResolvedModels)
+	}
+	if got.TerminalReason != "api_error" || got.Denials != 1 {
+		t.Errorf("failure telemetry missing: reason=%q denials=%d", got.TerminalReason, got.Denials)
+	}
+}
+
+func TestAnthropicGenerate_RecordsTelemetryOnSuccessAndFailure(t *testing.T) {
+	root := testKB(t, "")
+	p := &anthropicProvider{model: "sonnet", root: root}
+
+	installEnvelopeClaude(t, telemetryEnvelope, 0)
+	if _, err := p.Generate(context.Background(), "prompt"); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if got := lastCostEntry(t, root); got.Denials != 4 || len(got.ResolvedModels) != 2 {
+		t.Errorf("Generate success row missing telemetry: %+v", got)
+	}
+
+	installEnvelopeClaude(t, failingEnvelope, 1)
+	if _, err := p.Generate(context.Background(), "prompt"); err == nil {
+		t.Fatal("expected an error from a non-zero exit")
+	}
+	if got := lastCostEntry(t, root); got.TerminalReason != "api_error" || got.OK {
+		t.Errorf("Generate failure row missing telemetry: %+v", got)
+	}
+}
+
+// Deliberate behavior change: a failed run's usage used to be thrown away,
+// so its output tokens never counted toward the daily output-token ceiling
+// (one failed dream billed ~49k output tokens and ~$5 that the ledger never
+// saw). Recording the envelope on the failure path makes them count.
+// readDailyMeteredOutputTokens sums every row regardless of OK.
+func TestBudget_CountsFailedRunOutputTokens(t *testing.T) {
+	root := testKB(t, "")
+	failingWithUsage := strings.Replace(failingEnvelope,
+		`"usage":{"input_tokens":0,"output_tokens":0}`,
+		`"usage":{"input_tokens":5,"output_tokens":4800}`, 1)
+	installEnvelopeClaude(t, failingWithUsage, 1)
+	if _, err := realRunClaude(context.Background(), root, "prompt", "sonnet", []string{"Read"}, 30*time.Second); err == nil {
+		t.Fatal("expected an error from a non-zero exit")
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	if got := readDailyMeteredOutputTokens(root, day); got != 4800 {
+		t.Errorf("daily metered output tokens = %d, want 4800 from the failed run", got)
 	}
 }
