@@ -51,7 +51,7 @@ func TestDreamPrompts_UseOnlyLoaderVars(t *testing.T) {
 	}
 }
 
-// The monolithic dream's grant (dream.go:103-106, isolated by claude.go's
+// The monolithic dream's grant (DreamCmd.Run's tools slice in dream.go, isolated by claude.go's
 // --tools/--allowedTools) lets Bash run only wc, ls and find, and refuses
 // find -delete/-exec. Measured 2026-10-23 on Claude Code 2.1.293. Cycles
 // that didn't know this spent turns on refused cd && …; for … loops and
@@ -73,8 +73,11 @@ func TestDreamPrompt_DoesNotAskForImpossibleDeletion(t *testing.T) {
 	if strings.Contains(p, "Only then delete") {
 		t.Error("dream.md still asks the model to delete files it cannot delete")
 	}
-	if !strings.Contains(p, "cannot delete files") {
-		t.Error("dream.md should say files cannot be deleted with these tools")
+	if strings.Contains(p, "Never delete more than 3") {
+		t.Error("dream.md still caps deletions at 3, a cap the model cannot enforce without deleting")
+	}
+	if !strings.Contains(p, "for a human to delete") {
+		t.Error("dream.md should hand deletion candidates to a human to delete")
 	}
 }
 
@@ -119,6 +122,9 @@ func TestDreamOrchestratorPrompts_DoNotClaimStaleListIsZeroLink(t *testing.T) {
 		}
 		if !strings.Contains(lower, "is not evidence of decay") {
 			t.Errorf("%s decay instruction does not say listing is not evidence of decay", name)
+		}
+		if !strings.Contains(lower, "if unsure, do not mark it") {
+			t.Errorf("%s decay instruction does not say to skip marking when unsure", name)
 		}
 	}
 }

@@ -60,11 +60,11 @@ in 3 or more articles but do not have their own wiki page. For each:
 - Do not create stubs for generic terms (e.g., 'database', 'deployment', 'testing')
   — only for specific named entities that carry project-specific meaning
 
-## Phase 4 — PRUNE AND INDEX
+## Phase 4 — PRUNE
 
 - Do not edit any file in `wiki/` whose name starts with `_`. Scribe generates them, and it regenerates `_index.md` and `_backlinks.json` from disk after this cycle.
 - Flag (do not delete) an article ONLY when ALL hold: zero inbound links, zero outbound wikilinks, AND its `updated:` date is more than 60 days before today. Add '<!-- decay-candidate {{DATE}} -->' as the last line. Never flag an article whose `updated:` is within the last 60 days — the marker asserts staleness, so marking a fresh article is self-contradictory and wrong.
-- Deleting a previously-flagged article requires RE-VERIFICATION from the article itself, never the marker alone (earlier runs stamped bogus markers on fresh docs). Open the article and confirm ALL of: its `updated:` is still more than 90 days before today, it still has zero inbound and outbound links, AND the `decay-candidate` marker it carries is itself dated more than 30 days ago. Only then is it a deletion candidate. You cannot delete files with these tools, so list each candidate, with the evidence for every condition, in the dream log for a human to delete. If the `updated:` date is recent, the marker is bogus — REMOVE THE MARKER and keep the article. Never delete more than 3 articles in a single cycle; list any further candidates in the dream log for human review instead of deleting them.
+- Deleting a previously-flagged article requires RE-VERIFICATION from the article itself, never the marker alone (earlier runs stamped bogus markers on fresh docs). Open the article and confirm ALL of: its `updated:` is still more than 90 days before today, it still has zero inbound and outbound links, AND the `decay-candidate` marker it carries is itself dated more than 30 days ago. Only then is it a deletion candidate. You cannot delete files with these tools, so list each candidate, with the evidence for every condition, in the dream log for a human to delete. If the `updated:` date is recent, the marker is bogus — REMOVE THE MARKER and keep the article. List every candidate that meets all the conditions.
 
 Log everything you did in log.md using this format:
 ## [{{DATE}}] dream | One-line summary
