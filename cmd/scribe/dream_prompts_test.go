@@ -97,3 +97,28 @@ func TestDreamPrompt_DropsStepsScribeRedoes(t *testing.T) {
 		t.Error("dream.md should put every generated wiki/_* file off-limits")
 	}
 }
+
+// dreamStaleCandidates (dream_orchestrator.go) checks updated: only, and
+// these modes see no link data, so no prompt may describe the list as
+// zero-link. Marking must need positive evidence of obsolescence, because a
+// model reading "not linked from this packet" as permission would mark old
+// but well-linked articles. The executor's guard (wiki_actions.go) only
+// blocks fresh ones.
+func TestDreamOrchestratorPrompts_DoNotClaimStaleListIsZeroLink(t *testing.T) {
+	for _, name := range []string{"dream-anthropic.md", "dream-ollama.md", "dream-hot-anthropic.md", "dream-hot-ollama.md"} {
+		p := loadDreamPromptForTest(t, name)
+		lower := strings.ToLower(p)
+		if strings.Contains(lower, "zero links") {
+			t.Errorf("%s still describes the stale list as zero links", name)
+		}
+		if !strings.Contains(lower, "link counts not checked") {
+			t.Errorf("%s does not say the stale list's link counts are not checked", name)
+		}
+		if !strings.Contains(p, "Stale candidates") {
+			t.Errorf("%s lost the \"Stale candidates\" heading its decay instruction refers to", name)
+		}
+		if !strings.Contains(lower, "is not evidence of decay") {
+			t.Errorf("%s decay instruction does not say listing is not evidence of decay", name)
+		}
+	}
+}
