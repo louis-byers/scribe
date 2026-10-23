@@ -261,3 +261,86 @@ func TestBudget_CountsFailedRunOutputTokens(t *testing.T) {
 		t.Errorf("daily metered output tokens = %d, want 4800 from the failed run", got)
 	}
 }
+
+func writeCostLines(t *testing.T, root string, lines ...string) {
+	t.Helper()
+	dir := filepath.Join(root, "output", "costs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	if err := os.WriteFile(filepath.Join(dir, day+".jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSummarizeCosts_AggregatesResolvedModelsAndDenials(t *testing.T) {
+	root := t.TempDir()
+	writeCostLines(t, root,
+		`{"timestamp":"2026-10-23T10:00:00Z","model":"sonnet","ok":true,"resolved_models":["claude-sonnet-5"]}`,
+		`{"timestamp":"2026-10-23T11:00:00Z","model":"sonnet","ok":true,"resolved_models":["claude-sonnet-5-5"],"denials":3}`,
+		`{"timestamp":"2026-10-23T12:00:00Z","model":"sonnet","ok":false,"err_kind":"other","resolved_models":["claude-sonnet-5-5"],"denials":1}`,
+		`{"timestamp":"2026-10-23T13:00:00Z","model":"haiku","ok":true}`,
+	)
+	rows, err := summarizeCosts(root, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sonnet, haiku CostSummary
+	for _, r := range rows {
+		switch r.Model {
+		case "sonnet":
+			sonnet = r
+		case "haiku":
+			haiku = r
+		}
+	}
+	if sonnet.ResolvedModels["claude-sonnet-5"] != 1 || sonnet.ResolvedModels["claude-sonnet-5-5"] != 2 {
+		t.Errorf("sonnet ResolvedModels = %v", sonnet.ResolvedModels)
+	}
+	if sonnet.Denials != 4 {
+		t.Errorf("sonnet Denials = %d, want 4", sonnet.Denials)
+	}
+	if len(haiku.ResolvedModels) != 0 || haiku.Denials != 0 {
+		t.Errorf("legacy haiku row gained telemetry: %+v", haiku)
+	}
+}
+
+func TestCostModelLabel(t *testing.T) {
+	cases := []struct {
+		name string
+		row  CostSummary
+		want string
+	}{
+		{"legacy row", CostSummary{Model: "haiku"}, "haiku"},
+		{"resolved equals alias", CostSummary{Model: "ollama/qwen3.8:27b", ResolvedModels: map[string]int{"ollama/qwen3.8:27b": 2}}, "ollama/qwen3.8:27b"},
+		{"one resolved", CostSummary{Model: "sonnet", ResolvedModels: map[string]int{"claude-sonnet-5-5": 3}}, "sonnet → claude-sonnet-5-5"},
+		{"model changed in window", CostSummary{Model: "sonnet", ResolvedModels: map[string]int{"claude-sonnet-5-5": 2, "claude-sonnet-5": 1}}, "sonnet → claude-sonnet-5, claude-sonnet-5-5"},
+		// A dream that spawned Haiku subagents lists both models in
+		// modelUsage. Only ids matching the alias are shown, so the label
+		// doesn't read as if "sonnet" moved to Haiku.
+		{"subagent model ignored", CostSummary{Model: "sonnet", ResolvedModels: map[string]int{"claude-sonnet-5": 1, "claude-haiku-4-5-20251001": 1}}, "sonnet → claude-sonnet-5"},
+		// No id matches the alias (an alias name nobody embeds): show all.
+		{"no id matches alias", CostSummary{Model: "best", ResolvedModels: map[string]int{"claude-opus-5-5": 1}}, "best → claude-opus-5-5"},
+	}
+	for _, c := range cases {
+		if got := costModelLabel(c.row); got != c.want {
+			t.Errorf("%s: costModelLabel = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestMergeByModel_MergesTelemetryWithoutAliasing(t *testing.T) {
+	a := CostSummary{Model: "sonnet", Calls: 1, ResolvedModels: map[string]int{"claude-sonnet-5": 1}, Denials: 2}
+	b := CostSummary{Model: "sonnet", Calls: 1, ResolvedModels: map[string]int{"claude-sonnet-5-5": 1}, Denials: 1}
+	dst := map[string]*CostSummary{}
+	mergeByModel(dst, []CostSummary{a})
+	mergeByModel(dst, []CostSummary{b})
+	got := dst["sonnet"]
+	if got.Denials != 3 || got.ResolvedModels["claude-sonnet-5"] != 1 || got.ResolvedModels["claude-sonnet-5-5"] != 1 {
+		t.Errorf("merged = %+v", got)
+	}
+	if len(a.ResolvedModels) != 1 {
+		t.Errorf("source row's map was mutated through the merge: %v", a.ResolvedModels)
+	}
+}
