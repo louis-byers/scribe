@@ -47,7 +47,9 @@ All notable changes to scribe are documented here. Format follows [Keep a Change
   `article_count`, all of which scribe regenerates after every cycle. The
   orchestrator and hot prompts no longer call their stale list "zero
   links". It is filtered by `updated:` only, so listing is no longer
-  treated as evidence of decay.
+  treated as evidence of decay. In those modes, which see metadata
+  only, expect far fewer `decay-candidate` markers: a listed article is
+  marked only on a concrete sign it is obsolete.
 
 ## [0.5.10] — 2026-10-15
 
