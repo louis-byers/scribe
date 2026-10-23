@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -148,12 +149,23 @@ func TestDenialSample_RedactsURLTokens(t *testing.T) {
 // prints a full result envelope (e.g. an api_error mid-run).
 func installEnvelopeClaude(t *testing.T, envelope string, exitCode int) {
 	t.Helper()
+	installEnvelopeClaudeWithStderr(t, envelope, exitCode, "")
+}
+
+// installEnvelopeClaudeWithStderr is installEnvelopeClaude plus a line the
+// shim writes to stderr (skipped when empty).
+func installEnvelopeClaudeWithStderr(t *testing.T, envelope string, exitCode int, stderr string) {
+	t.Helper()
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "envelope.json")
 	if err := os.WriteFile(envFile, []byte(envelope), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\ncat >/dev/null\ncat \"" + envFile + "\"\nexit " + strconv.Itoa(exitCode) + "\n"
+	stderrLine := ""
+	if stderr != "" {
+		stderrLine = "echo '" + stderr + "' >&2\n"
+	}
+	script := "#!/bin/sh\ncat >/dev/null\n" + stderrLine + "cat \"" + envFile + "\"\nexit " + strconv.Itoa(exitCode) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -221,6 +233,22 @@ func TestRealRunClaude_RecordsTelemetryOnNonZeroExit(t *testing.T) {
 	}
 }
 
+func TestRealRunClaude_RecordsTelemetryOnStderrRateLimit(t *testing.T) {
+	root := testKB(t, "")
+	installEnvelopeClaudeWithStderr(t, telemetryEnvelope, 0, "Error: 429 rate limit reached")
+	_, err := realRunClaude(context.Background(), root, "prompt", "sonnet", []string{"Read"}, 30*time.Second)
+	if !errors.Is(err, ErrRateLimit) {
+		t.Fatalf("err = %v, want ErrRateLimit", err)
+	}
+	got := lastCostEntry(t, root)
+	if got.OK || got.ErrKind != "rate_limit" {
+		t.Errorf("classification: ok=%v kind=%q, want rate_limit", got.OK, got.ErrKind)
+	}
+	if got.Denials != 4 || len(got.ResolvedModels) == 0 {
+		t.Errorf("rate-limited row lost telemetry: %+v", got)
+	}
+}
+
 func TestAnthropicGenerate_RecordsTelemetryOnSuccessAndFailure(t *testing.T) {
 	root := testKB(t, "")
 	p := &anthropicProvider{model: "sonnet", root: root}
@@ -239,6 +267,8 @@ func TestAnthropicGenerate_RecordsTelemetryOnSuccessAndFailure(t *testing.T) {
 	}
 	if got := lastCostEntry(t, root); got.TerminalReason != "api_error" || got.OK {
 		t.Errorf("Generate failure row missing telemetry: %+v", got)
+	} else if got.ErrKind != "other" {
+		t.Errorf("Generate failure ErrKind = %q, want other", got.ErrKind)
 	}
 }
 
@@ -321,6 +351,9 @@ func TestCostModelLabel(t *testing.T) {
 		// doesn't read as if "sonnet" moved to Haiku.
 		{"subagent model ignored", CostSummary{Model: "sonnet", ResolvedModels: map[string]int{"claude-sonnet-5": 1, "claude-haiku-4-5-20251001": 1}}, "sonnet → claude-sonnet-5"},
 		// No id matches the alias (an alias name nobody embeds): show all.
+		// No alias at all: nothing may match (Contains("", x) is always
+		// true), so the fallback shows every id.
+		{"empty alias", CostSummary{Model: "", ResolvedModels: map[string]int{"claude-x": 1}}, " → claude-x"},
 		{"no id matches alias", CostSummary{Model: "best", ResolvedModels: map[string]int{"claude-opus-5-5": 1}}, "best → claude-opus-5-5"},
 	}
 	for _, c := range cases {
