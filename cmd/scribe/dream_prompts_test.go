@@ -58,7 +58,7 @@ func TestDreamPrompts_UseOnlyLoaderVars(t *testing.T) {
 // python3/scribe calls. Anchors are kept to the load-bearing facts.
 func TestDreamPrompt_StatesActualToolGrant(t *testing.T) {
 	p := loadDreamPromptForTest(t, "dream.md")
-	for _, want := range []string{"`wc`, `ls` and `find`", "no subagents"} {
+	for _, want := range []string{"`wc`, `ls` and `find`", "no subagents", "Ignore any source ending in `_index.md`"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("dream.md does not state %q", want)
 		}
