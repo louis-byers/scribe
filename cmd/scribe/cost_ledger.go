@@ -428,6 +428,11 @@ type CostSummary struct {
 	OutputTokens    int64
 	CacheReadTokens int64
 	ActualUSD       float64
+	// ResolvedModels counts calls per model id that actually ran
+	// (from CostEntry.ResolvedModels); empty for legacy rows.
+	ResolvedModels map[string]int
+	// Denials totals refused tool calls across the rows.
+	Denials int
 }
 
 // summarizeCosts reads every JSONL in output/costs/ within the
@@ -517,6 +522,7 @@ func summarizeCosts(root string, days int) ([]CostSummary, error) {
 			if ce.CostUSD != nil {
 				row.ActualUSD += *ce.CostUSD
 			}
+			accumulateTelemetry(row, ce)
 		}
 	}
 
@@ -552,6 +558,22 @@ func summarizeCosts(root string, days int) ([]CostSummary, error) {
 		return rowSortKey(out[i]) > rowSortKey(out[j])
 	})
 	return out, nil
+}
+
+// accumulateTelemetry folds one ledger row's envelope telemetry into the
+// per-model summary row being built by summarizeCosts. row is that
+// function's own accumulator, not a caller's value.
+func accumulateTelemetry(row *CostSummary, ce CostEntry) {
+	row.Denials += ce.Denials
+	if len(ce.ResolvedModels) == 0 {
+		return
+	}
+	if row.ResolvedModels == nil {
+		row.ResolvedModels = map[string]int{}
+	}
+	for _, id := range ce.ResolvedModels {
+		row.ResolvedModels[id]++
+	}
 }
 
 // CostCmd is the `scribe cost` subcommand.
@@ -639,6 +661,9 @@ func (c *CostCmd) Run() error {
 			total.CallsWithUsage, total.Calls, unmeasured, total.EstUSDHigh)
 	} else {
 		fmt.Printf("  Coverage: %d/%d calls reported real token usage (--output-format json).\n", total.CallsWithUsage, total.Calls)
+	}
+	if total.Denials > 0 {
+		fmt.Printf("  Denied tool calls: %d in this window (see denied_tools / denied_samples in output/costs/*.jsonl).\n", total.Denials)
 	}
 	fmt.Println("  usd = measured spend from token data.  ~$lo-hi = char-based estimate for rows with no token data at all.")
 	fmt.Println("  cancl = sibling-canceled (rate-limit cascade).  rate = direct rate-limit response.  tmout = ctx.DeadlineExceeded.")
@@ -744,6 +769,17 @@ func addCost(dst *CostSummary, src CostSummary) {
 	dst.OutputTokens += src.OutputTokens
 	dst.CacheReadTokens += src.CacheReadTokens
 	dst.ActualUSD += src.ActualUSD
+	dst.Denials += src.Denials
+	if len(src.ResolvedModels) > 0 {
+		merged := make(map[string]int, len(dst.ResolvedModels)+len(src.ResolvedModels))
+		for id, n := range dst.ResolvedModels {
+			merged[id] = n
+		}
+		for id, n := range src.ResolvedModels {
+			merged[id] += n
+		}
+		dst.ResolvedModels = merged
+	}
 }
 
 // totalOfCosts sums a set of per-model rows into a single CostSummary.
@@ -778,7 +814,7 @@ func printCostTable(rows []CostSummary) CostSummary {
 	header := []string{"model", "calls", "ok", "cancl", "rate", "tmout", "wallclock", "in-tokens", "out-tokens", "usd"}
 	cells := func(r CostSummary) []string {
 		return []string{
-			r.Model,
+			costModelLabel(r),
 			commaInt(int64(r.Calls)),
 			commaInt(int64(r.OK)),
 			commaInt(int64(r.Canceled)),
@@ -798,6 +834,35 @@ func printCostTable(rows []CostSummary) CostSummary {
 	footer[0] = "TOTAL"
 	printAlignedTable(header, body, footer)
 	return total
+}
+
+// costModelLabel is the model column's text: the alias, plus the model ids
+// that actually ran when they differ from it ("sonnet → claude-sonnet-5-5").
+// An alias can be moved to a new model by the provider without any config
+// change; this is where that becomes visible. A run that spawned subagents
+// also lists their models, so only ids containing the alias are shown; if
+// none does, all are.
+func costModelLabel(r CostSummary) string {
+	if len(r.ResolvedModels) == 0 {
+		return r.Model
+	}
+	all := make([]string, 0, len(r.ResolvedModels))
+	matching := make([]string, 0, len(r.ResolvedModels))
+	for id := range r.ResolvedModels {
+		all = append(all, id)
+		if strings.Contains(id, r.Model) {
+			matching = append(matching, id)
+		}
+	}
+	shown := matching
+	if len(shown) == 0 {
+		shown = all
+	}
+	if len(shown) == 1 && shown[0] == r.Model {
+		return r.Model
+	}
+	sort.Strings(shown)
+	return r.Model + " → " + strings.Join(shown, ", ")
 }
 
 // groupByProvider rolls per-model rows up to their backend provider, ordered
