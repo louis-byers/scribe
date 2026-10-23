@@ -171,6 +171,9 @@ const (
 	// deniedSampleMaxBytes bounds each previewed Bash command. Commands
 	// can carry KB paths; the ledger lives under the gitignored output/.
 	deniedSampleMaxBytes = 120
+	// toolNameBash is the permission-denial tool name whose command input
+	// is previewed.
+	toolNameBash = "Bash"
 )
 
 // withEnvelope returns a copy of e with token usage, cost, and call
@@ -237,7 +240,7 @@ var leadingCDPrefix = regexp.MustCompile(`^\s*cd\s+\S+\s*(?:&&|;)\s*`)
 // result cut to deniedSampleMaxBytes. For every other tool it is the tool
 // name only; their inputs are never stored.
 func denialSample(d claudeDenial) string {
-	if d.ToolName != "Bash" {
+	if d.ToolName != toolNameBash {
 		return d.ToolName
 	}
 	var input struct {
@@ -850,7 +853,7 @@ func costModelLabel(r CostSummary) string {
 	matching := make([]string, 0, len(r.ResolvedModels))
 	for id := range r.ResolvedModels {
 		all = append(all, id)
-		if strings.Contains(id, r.Model) {
+		if r.Model != "" && strings.Contains(id, r.Model) {
 			matching = append(matching, id)
 		}
 	}
