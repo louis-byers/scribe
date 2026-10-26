@@ -37,6 +37,7 @@ func (o *OrphansCmd) Run() error {
 	// field and live in the same namespace as canonical titles for the
 	// purposes of orphan / missing-page detection.
 	allTitles := make(map[string]bool)
+	supersededTitles := make(map[string]bool)
 	allTargets := make(map[string]bool)
 
 	err = walkArticles(root, func(_ string, content []byte) error {
@@ -47,6 +48,9 @@ func (o *OrphansCmd) Run() error {
 				if alias != "" {
 					allTitles[alias] = true
 				}
+			}
+			if isSuperseded(fm) {
+				supersededTitles[fm.Title] = true
 			}
 			return nil
 		}
@@ -74,6 +78,9 @@ func (o *OrphansCmd) Run() error {
 	// Orphans: titles with no inbound links
 	var orphans []string
 	for title := range allTitles {
+		if supersededTitles[title] {
+			continue
+		}
 		if _, hasBacklinks := backlinks[title]; !hasBacklinks {
 			// Also check if it's a target of any link
 			if !allTargets[title] {

@@ -155,6 +155,11 @@ func loadArticles(root string) ([]*article, error) {
 		if fm.Title == "" {
 			return nil
 		}
+		// A superseded article is neither an orphan to relink nor a host
+		// to link from.
+		if isSuperseded(fm) {
+			return nil
+		}
 
 		body := string(content)
 		if len(body) > 2500 {

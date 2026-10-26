@@ -223,6 +223,7 @@ func lintSizes(rep *lintReport, root string, files []string) {
 // warnAggregatef instead of joining the grouped per-file summary.
 func lintOrphans(rep *lintReport, root string) {
 	allTitles := make(map[string]bool)
+	supersededTitles := make(map[string]bool)
 	allTargets := make(map[string]bool)
 	inboundCount := make(map[string]int)
 
@@ -237,6 +238,9 @@ func lintOrphans(rep *lintReport, root string) {
 				if alias != "" {
 					allTitles[alias] = true
 				}
+			}
+			if isSuperseded(fm) {
+				supersededTitles[fm.Title] = true
 			}
 			return nil
 		}
@@ -260,7 +264,7 @@ func lintOrphans(rep *lintReport, root string) {
 
 	orphanCount := 0
 	for title := range allTitles {
-		if inboundCount[title] == 0 && !allTargets[title] {
+		if inboundCount[title] == 0 && !allTargets[title] && !supersededTitles[title] {
 			orphanCount++
 		}
 	}

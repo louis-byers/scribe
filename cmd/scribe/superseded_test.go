@@ -181,3 +181,62 @@ func TestComputeBacklinksForMatchesBacklinksFile(t *testing.T) {
 		}
 	}
 }
+
+// orphanFixture is supersededTestKB with the survivor's link to the stub
+// removed: now nothing links to "Old Approach" (superseded) or to "Other
+// Note" (live). Only "Other Note" may be reported as an orphan.
+func orphanFixture(t *testing.T) string {
+	t.Helper()
+	root := supersededTestKB(t)
+	writeKBFile(t, root, "wiki/new.md",
+		"---\ntitle: \"New Approach\"\ntype: pattern\ndomain: general\n---\n\nThe current way.\n")
+	return root
+}
+
+// The generated index links every listed article, which is what kept stubs
+// from being orphans. With superseded articles out of the index, the orphan
+// checks must skip them, or lint warns forever and `link --apply` writes
+// See Also links to dead stubs into live articles.
+func TestLintOrphansSkipsSupersededArticles(t *testing.T) {
+	root := orphanFixture(t)
+	out := captureLintStdout(t, func() {
+		rep := newLintReport(os.Stdout, false, false)
+		lintOrphans(rep, root)
+	})
+	if !strings.Contains(out, "1 orphan articles") {
+		t.Errorf("want exactly 1 orphan (Other Note), not the superseded article:\n%s", out)
+	}
+}
+
+func TestOrphansCmdSkipsSupersededArticles(t *testing.T) {
+	orphanFixture(t)
+	runBacklinks(t)
+	var err error
+	out := captureLintStdout(t, func() { err = (&OrphansCmd{JSON: true}).Run() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report orphanReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("bad JSON: %v\n%s", err, out)
+	}
+	if !slices.Equal(report.Orphans, []string{"Other Note"}) {
+		t.Errorf("orphans = %v, want [Other Note]", report.Orphans)
+	}
+	if len(report.Missing) != 0 {
+		t.Errorf("missing = %v, want none (superseded titles stay known)", report.Missing)
+	}
+}
+
+func TestLinkNeverLoadsSupersededArticles(t *testing.T) {
+	root := supersededTestKB(t)
+	articles, err := loadArticles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range articles {
+		if a.Title == "Old Approach" {
+			t.Error("loadArticles returned a superseded article; link would offer it as an orphan or a host")
+		}
+	}
+}
