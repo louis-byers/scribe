@@ -228,6 +228,52 @@ func TestOrphansCmdSkipsSupersededArticles(t *testing.T) {
 	}
 }
 
+func TestOrphansSkipSupersededAliases(t *testing.T) {
+	root := orphanFixture(t)
+	writeKBFile(t, root, "wiki/old2.md",
+		"---\ntitle: \"Old Two\"\naliases: [old-two-name]\ntype: pattern\ndomain: general\nstatus: superseded\n---\n\nStub.\n")
+	runBacklinks(t)
+
+	out := captureLintStdout(t, func() {
+		rep := newLintReport(os.Stdout, false, false)
+		lintOrphans(rep, root)
+	})
+	if !strings.Contains(out, "1 orphan articles") {
+		t.Errorf("want exactly 1 orphan (Other Note):\n%s", out)
+	}
+	for _, name := range []string{"Old Two", "old-two-name"} {
+		if strings.Contains(out, name) {
+			t.Errorf("lint reported superseded %q as orphan:\n%s", name, out)
+		}
+	}
+
+	var err error
+	jsonOut := captureLintStdout(t, func() { err = (&OrphansCmd{JSON: true}).Run() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report orphanReport
+	if err := json.Unmarshal([]byte(jsonOut), &report); err != nil {
+		t.Fatalf("bad JSON: %v\n%s", err, jsonOut)
+	}
+	if !slices.Equal(report.Orphans, []string{"Other Note"}) {
+		t.Errorf("orphans = %v, want [Other Note]", report.Orphans)
+	}
+}
+
+func TestLinkOrphanFlagRejectsSupersededArticle(t *testing.T) {
+	supersededTestKB(t)
+	runBacklinks(t)
+	err := (&LinkCmd{Orphan: "Old Approach"}).Run()
+	if err == nil || !strings.Contains(err.Error(), "status: superseded") {
+		t.Errorf("err = %v, want superseded rejection", err)
+	}
+	err = (&LinkCmd{Orphan: "No Such Title"}).Run()
+	if err == nil || !strings.Contains(err.Error(), "not found by title") {
+		t.Errorf("err = %v, want not-found error", err)
+	}
+}
+
 func TestLinkNeverLoadsSupersededArticles(t *testing.T) {
 	root := supersededTestKB(t)
 	articles, err := loadArticles(root)

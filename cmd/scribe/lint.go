@@ -234,14 +234,7 @@ func lintOrphans(rep *lintReport, root string) {
 	_ = walkArticles(root, func(_ string, content []byte) error {
 		if fm, err := parseFrontmatter(content); err == nil && fm.Title != "" {
 			allTitles[fm.Title] = true
-			for _, alias := range toStringSlice(fm.Aliases) {
-				if alias != "" {
-					allTitles[alias] = true
-				}
-			}
-			if isSuperseded(fm) {
-				supersededTitles[fm.Title] = true
-			}
+			addAliasTitles(fm, allTitles, supersededTitles)
 			return nil
 		}
 		if title := extractTitleFast(content); title != "" {

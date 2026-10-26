@@ -185,7 +185,8 @@ func (c *DebugBacklinksCmd) Run() error {
 }
 
 // computeBacklinksFor walks the KB and returns sources linking to title.
-// Mirrors backlinks.go logic but for a single target.
+// It shares collectArticleLinks with `scribe backlinks`, so the two cannot
+// disagree about what counts as a link.
 func computeBacklinksFor(root, title string) ([]string, error) {
 	g, err := collectArticleLinks(root)
 	if err != nil {

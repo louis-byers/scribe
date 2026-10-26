@@ -24,7 +24,7 @@ All notable changes to scribe are documented here. Format follows [Keep a Change
   resolvable by title, but `scribe index` no longer lists it, `scribe
   backlinks` no longer uses it as a link source or target, `lint
   --duplicates` no longer reports it, and `lint`, `scribe orphans` and
-  `scribe link` no longer treat it as an orphan or link host. The
+  `scribe link` no longer treat it (or its aliases) as an orphan or link host. The
   index-consistency lint counts the same way. A live article that shares
   a superseded article's title keeps its backlinks. `superseded` is now a
   valid `status` for `project` too. `scribe debug --fresh` now shares

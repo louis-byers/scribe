@@ -19,6 +19,24 @@ type orphanReport struct {
 	Missing []string `json:"missing"`
 }
 
+// addAliasTitles records fm's title and aliases as known and, for a
+// superseded article, as exempt from orphan reporting.
+func addAliasTitles(fm *Frontmatter, allTitles, supersededTitles map[string]bool) {
+	superseded := isSuperseded(fm)
+	if superseded {
+		supersededTitles[fm.Title] = true
+	}
+	for _, alias := range toStringSlice(fm.Aliases) {
+		if alias == "" {
+			continue
+		}
+		allTitles[alias] = true
+		if superseded {
+			supersededTitles[alias] = true
+		}
+	}
+}
+
 func (o *OrphansCmd) Run() error {
 	root, err := kbDir()
 	if err != nil {
@@ -44,14 +62,7 @@ func (o *OrphansCmd) Run() error {
 		fm, ferr := parseFrontmatter(content)
 		if ferr == nil && fm.Title != "" {
 			allTitles[fm.Title] = true
-			for _, alias := range toStringSlice(fm.Aliases) {
-				if alias != "" {
-					allTitles[alias] = true
-				}
-			}
-			if isSuperseded(fm) {
-				supersededTitles[fm.Title] = true
-			}
+			addAliasTitles(fm, allTitles, supersededTitles)
 			return nil
 		}
 		// Fall back to the fast title scan if frontmatter didn't parse.
