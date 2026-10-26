@@ -298,8 +298,13 @@ func lintIndexConsistency(rep *lintReport, root string) {
 			indexCount++
 		}
 	}
+	// Count what `scribe index` lists: superseded articles are on disk but
+	// deliberately left out of the index.
 	diskCount := 0
-	_ = walkArticles(root, func(_ string, _ []byte) error {
+	_ = walkArticles(root, func(_ string, content []byte) error {
+		if fm, err := parseFrontmatter(content); err == nil && isSuperseded(fm) {
+			return nil
+		}
 		diskCount++
 		return nil
 	})
