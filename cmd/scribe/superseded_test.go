@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -92,5 +94,90 @@ func TestLintIndexConsistencyIgnoresSupersededArticles(t *testing.T) {
 	}
 	if !strings.Contains(out, "index: 2 entries, disk: 2 articles") {
 		t.Errorf("disk count should exclude superseded articles:\n%s", out)
+	}
+}
+
+func readBacklinksJSON(t *testing.T, root string) map[string][]string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, "wiki", "_backlinks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string][]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("_backlinks.json is not a title→sources map: %v", err)
+	}
+	return m
+}
+
+func runBacklinks(t *testing.T) {
+	t.Helper()
+	var err error
+	captureLintStdout(t, func() { err = (&BacklinksCmd{}).Run() })
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBacklinksDropSupersededArticlesAsTargetsAndSources(t *testing.T) {
+	root := supersededTestKB(t)
+	runBacklinks(t)
+	bl := readBacklinksJSON(t, root)
+	if _, ok := bl["Old Approach"]; ok {
+		t.Errorf("superseded article kept as a backlinks target: %v", bl["Old Approach"])
+	}
+	if slices.Contains(bl["New Approach"], "Old Approach") {
+		t.Errorf("superseded article counted as an inbound source: %v", bl["New Approach"])
+	}
+	if !slices.Contains(bl["New Approach"], "Other Note") {
+		t.Errorf("live inbound link lost: %v", bl["New Approach"])
+	}
+}
+
+// A leftover duplicate often keeps the survivor's exact title. Marking it
+// superseded must not wipe the live article's backlinks.
+func TestBacklinksKeepLiveArticleThatSharesASupersededTitle(t *testing.T) {
+	root := supersededTestKB(t)
+	writeKBFile(t, root, "wiki/new-dup.md",
+		"---\ntitle: \"New Approach\"\ntype: pattern\ndomain: general\nstatus: superseded\n---\n\nDuplicate. See [[Other Note]].\n")
+	runBacklinks(t)
+	bl := readBacklinksJSON(t, root)
+	if !slices.Contains(bl["New Approach"], "Other Note") {
+		t.Errorf("live article's backlinks wiped by a superseded duplicate with the same title: %v", bl["New Approach"])
+	}
+	got, err := computeBacklinksFor(root, "New Approach")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(got, "Other Note") {
+		t.Errorf("computeBacklinksFor wiped the live article's backlinks: %v", got)
+	}
+}
+
+// debug --fresh recomputes one title's backlinks; for every title it must
+// equal what scribe backlinks writes. graphTestKB covers a self-link
+// (B Article), a hub source (wiki/_index.md) and a ghost target.
+func TestComputeBacklinksForMatchesBacklinksFile(t *testing.T) {
+	root := graphTestKB(t)
+	writeKBFile(t, root, "wiki/old.md", supersededStubArticle)
+	runBacklinks(t)
+	bl := readBacklinksJSON(t, root)
+	titles := []string{"A Article", "B Article", "C Tool", "Ghost Page", "Old Approach", "New Approach"}
+	for k := range bl {
+		if !slices.Contains(titles, k) {
+			titles = append(titles, k)
+		}
+	}
+	for _, title := range titles {
+		got, err := computeBacklinksFor(root, title)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) == 0 && len(bl[title]) == 0 {
+			continue
+		}
+		if !slices.Equal(got, bl[title]) {
+			t.Errorf("computeBacklinksFor(%q) = %v, _backlinks.json has %v", title, got, bl[title])
+		}
 	}
 }
