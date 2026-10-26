@@ -240,3 +240,17 @@ func TestLinkNeverLoadsSupersededArticles(t *testing.T) {
 		}
 	}
 }
+
+// The duplicate report tells users to mark merged-away articles
+// status: superseded; once they do, those must stop being reported.
+func TestCollectContentDocsSkipsSupersededArticles(t *testing.T) {
+	root := t.TempDir()
+	wiki := filepath.Join(root, "wiki")
+	body := toks("alpha", 1, 60)
+	writeArticle(t, wiki, "survivor.md", "title: Survivor\ntype: pattern\n", body)
+	writeArticle(t, wiki, "stub.md", "title: Stub\ntype: pattern\nstatus: superseded\n", body)
+	docs := collectContentDocs(root)
+	if len(docs) != 1 || docs[0].rel != filepath.Join("wiki", "survivor.md") {
+		t.Errorf("collectContentDocs = %+v, want only wiki/survivor.md", docs)
+	}
+}
