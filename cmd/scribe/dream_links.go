@@ -32,7 +32,16 @@ func dreamLinkReport(g linkGraph, today time.Time, staleDays int) string {
 	sb.WriteString(renderCappedList(decayCandidateLines(g, today, staleDays)))
 	fmt.Fprintf(&sb, "\n### Wanted pages (linked from %d or more articles, no page exists)\n", wantedPageMinArticles)
 	sb.WriteString(renderCappedList(wantedPageLines(g)))
-	return strings.ReplaceAll(sb.String(), "{{", "{ {")
+	return escapeBraceRuns(sb.String())
+}
+
+// escapeBraceRuns splits every `{{`, including runs of 3 or more, so no
+// placeholder-shaped text reaches loadPrompt. Each pass shortens a run.
+func escapeBraceRuns(text string) string {
+	for strings.Contains(text, "{{") {
+		text = strings.ReplaceAll(text, "{{", "{ {")
+	}
+	return text
 }
 
 // renderCappedList cuts each line, keeps the first dreamLinkListMax and

@@ -111,9 +111,16 @@ func TestDreamLinkReport_SkippedNote(t *testing.T) {
 }
 
 func TestDreamLinkReport_EscapesBraces(t *testing.T) {
-	g := linkGraph{Articles: []graphArticle{oldArticle("wiki/a.md", "{{DATE}} plan")}}
+	g := linkGraph{Articles: []graphArticle{
+		oldArticle("wiki/a.md", "{{DATE}} plan"),
+		oldArticle("wiki/b.md", "{{{X}}}"),
+		oldArticle("wiki/c.md", "{{{{"),
+	}}
 	got := dreamLinkReport(g, linkReportToday, 60)
-	if !strings.Contains(got, "{ {DATE}} plan") || strings.Contains(got, "{{") {
-		t.Errorf("braces not escaped:\n%s", got)
+	if !strings.Contains(got, "{ {DATE}} plan") {
+		t.Errorf("double braces not split:\n%s", got)
+	}
+	if strings.Contains(got, "{{") {
+		t.Errorf("a brace run survived:\n%s", got)
 	}
 }
