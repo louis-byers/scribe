@@ -46,9 +46,9 @@ type articleScan struct {
 	unparsed   int
 }
 
-func scanArticles(root string) (articleScan, int, error) {
+func scanArticles(root string) (articleScan, error) {
 	scan := articleScan{titleByRel: map[string]string{}, superseded: map[string]bool{}}
-	unreadable, err := walkMarkdownCounting(root, true, func(path string, content []byte) error {
+	_, err := walkMarkdownCounting(root, true, func(path string, content []byte) error {
 		rel := filepath.ToSlash(relPath(root, path))
 		fm, err := parseFrontmatter(content)
 		if err != nil {
@@ -76,7 +76,7 @@ func scanArticles(root string) (articleScan, int, error) {
 		})
 		return nil
 	})
-	return scan, unreadable, err
+	return scan, err
 }
 
 // supersededOnlyTitles returns the titles and aliases that no live entry holds.
@@ -108,7 +108,7 @@ func supersededOnlyTitles(entries []resolverEntry) map[string]bool {
 // markdown file including _-prefixed hubs (pass 2) to resolve each link.
 // Superseded files are never link sources.
 func buildLinkGraph(root string) (linkGraph, error) {
-	scan, unreadable, err := scanArticles(root)
+	scan, err := scanArticles(root)
 	if err != nil {
 		return linkGraph{}, err
 	}
@@ -145,8 +145,10 @@ func buildLinkGraph(root string) (linkGraph, error) {
 			}
 			seenTargets[target] = true
 			outbound[rel]++
-			if status == linkFuzzy && !edge.Generated {
-				graph.Broken = append(graph.Broken, brokenLink{Raw: target, Canonical: canonical, SourcePath: rel})
+			// extractWikilinks strips code spans, so a link to a title with
+			// code arrives without it; the file text is already right.
+			if status == linkFuzzy && !edge.Generated && collapseSpace(stripCodeSpans(canonical)) != collapseSpace(target) {
+				graph.Broken = append(graph.Broken, brokenLink{Raw: raw, Canonical: canonical, SourcePath: rel})
 			}
 			if seenCanonical[canonical] {
 				continue
@@ -170,7 +172,8 @@ func buildLinkGraph(root string) (linkGraph, error) {
 		graph.Articles[i].Outbound = outbound[graph.Articles[i].Path]
 	}
 	graph.Ambiguous = len(ambiguous)
-	graph.Unreadable = unreadable + skipped
+	// Pass 2 walks a superset of pass 1's files, so its skips are the total.
+	graph.Unreadable = skipped
 	return graph, nil
 }
 
@@ -232,3 +235,5 @@ func graphMissing(g linkGraph) []string {
 	sort.Strings(missing)
 	return missing
 }
+
+func collapseSpace(text string) string { return strings.Join(strings.Fields(text), " ") }

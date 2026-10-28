@@ -95,6 +95,14 @@ func TestResolve_LiveBeatsSuperseded(t *testing.T) {
 	assertResolve(t, resolver, "KAFKA", "Kafka", linkFuzzy)
 }
 
+func TestResolve_LiveAliasBeatsSupersededTitle(t *testing.T) {
+	resolver := newLinkResolver([]resolverEntry{
+		{Title: "Old Name", Path: "old/old-name.md", Superseded: true},
+		{Title: "New Name", Aliases: []string{"Old Name"}, Path: "tools/new-name.md"},
+	})
+	assertResolve(t, resolver, "Old Name", "New Name", linkExact)
+}
+
 func TestResolve_SlashTitle(t *testing.T) {
 	resolver := newLinkResolver(testResolverEntries())
 	assertResolve(t, resolver, "Guest/OneTime JWT", "Guest/OneTime JWT", linkExact)

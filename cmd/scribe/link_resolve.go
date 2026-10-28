@@ -136,16 +136,22 @@ func (r linkResolver) resolve(rawTarget string) (string, linkStatus) {
 	return canonical, status
 }
 
+// resolveTiers tries every tier against live articles first, and only when
+// none matches tries every tier against superseded ones.
 func (r linkResolver) resolveTiers(target string) (string, linkStatus) {
+	if canonical, status := resolveInIndexes(r.live, target); status != linkMissing {
+		return canonical, status
+	}
+	return resolveInIndexes(r.superseded, target)
+}
+
+func resolveInIndexes(indexes [tierCount]tierIndex, target string) (string, linkStatus) {
 	for tier := range tierCount {
 		key := targetKey(tier, target)
 		if key == "" {
 			continue
 		}
-		titles := r.live[tier][key]
-		if len(titles) == 0 {
-			titles = r.superseded[tier][key]
-		}
+		titles := indexes[tier][key]
 		status := linkFuzzy
 		if tier <= tierAlias {
 			status = linkExact

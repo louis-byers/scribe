@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -152,8 +153,34 @@ func TestLinkGraph_CountsUnreadable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.Unreadable < 1 {
-		t.Errorf("Unreadable = %d, want >= 1", g.Unreadable)
+	if g.Unreadable != 1 {
+		t.Errorf("Unreadable = %d, want 1", g.Unreadable)
+	}
+}
+
+func TestLinkGraph_CodeSpanLinkIsNotBroken(t *testing.T) {
+	root := resolverTestKB(t)
+	head := "---\ntitle: \"%s\"\ntype: solution\ndomain: general\n---\n\n"
+	writeKBFile(t, root, "wiki/code.md", fmt.Sprintf(head, "Title with `code` inside")+"body\n")
+	writeKBFile(t, root, "wiki/g.md", fmt.Sprintf(head, "G")+"[[Title with `code` inside]]\n")
+	g := buildTestGraph(t, root)
+	if got, want := edgeTitles(g.Inbound["Title with `code` inside"]), []string{"G"}; !slices.Equal(got, want) {
+		t.Errorf("Inbound sources = %v, want %v", got, want)
+	}
+	for _, broken := range g.Broken {
+		if broken.SourcePath == "wiki/g.md" {
+			t.Errorf("code-span link reported broken: %v", broken)
+		}
+	}
+}
+
+func TestLinkGraph_BrokenRawKeepsAnchor(t *testing.T) {
+	root := resolverTestKB(t)
+	writeKBFile(t, root, "wiki/h.md", "---\ntitle: \"H\"\ntype: solution\ndomain: general\n---\n\n[[alpha#x]]\n")
+	g := buildTestGraph(t, root)
+	want := brokenLink{Raw: "alpha#x", Canonical: "A", SourcePath: "wiki/h.md"}
+	if !slices.Contains(g.Broken, want) {
+		t.Errorf("Broken = %v, missing %v", g.Broken, want)
 	}
 }
 
