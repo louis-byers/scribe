@@ -103,11 +103,21 @@ func TestResolve_SlashTitle(t *testing.T) {
 }
 
 func TestNormalizeLinkTarget(t *testing.T) {
-	cases := []struct{ raw, want string }{{" Foo # x ", "Foo"}, {"#x", ""}, {"a.md", "a"}}
+	cases := []struct{ raw, want string }{{" Foo # x ", "Foo"}, {"#x", ""}, {"a.md", "a.md"}}
 	for _, tc := range cases {
 		raw, want := tc.raw, tc.want
 		if got := normalizeLinkTarget(raw); got != want {
 			t.Errorf("normalizeLinkTarget(%q) = %q, want %q", raw, got, want)
 		}
 	}
+}
+
+func TestResolve_TitleEndingInMD(t *testing.T) {
+	resolver := newLinkResolver([]resolverEntry{
+		{Title: "Notes in CLAUDE.md", Path: "notes/notes.md"},
+		{Title: "Kafka", Path: "tools/kafka.md"},
+	})
+	assertResolve(t, resolver, "Notes in CLAUDE.md", "Notes in CLAUDE.md", linkExact)
+	assertResolve(t, resolver, "kafka.md", "Kafka", linkFuzzy)
+	assertResolve(t, resolver, "Nope.md", "Nope.md", linkMissing)
 }

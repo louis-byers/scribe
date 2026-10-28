@@ -41,10 +41,11 @@ type linkResolver struct {
 	superseded [tierCount]tierIndex
 }
 
-// normalizeLinkTarget cuts a #anchor and a trailing .md off a raw wikilink target.
+// normalizeLinkTarget cuts a #anchor off a raw wikilink target. It keeps a
+// trailing .md, because some titles end in it; resolve handles the suffix.
 func normalizeLinkTarget(raw string) string {
 	target, _, _ := strings.Cut(strings.TrimSpace(raw), "#")
-	return strings.TrimSuffix(strings.TrimSpace(target), ".md")
+	return strings.TrimSpace(target)
 }
 
 func entryKeys(tier int, entry resolverEntry) []string {
@@ -113,8 +114,19 @@ func newLinkResolver(entries []resolverEntry) linkResolver {
 
 // resolve returns the canonical title a wikilink target names. A missing
 // target keeps its normalized text as the canonical value.
+// A target ending in .md is tried as given first, then without the suffix.
 func (r linkResolver) resolve(rawTarget string) (string, linkStatus) {
 	target := normalizeLinkTarget(rawTarget)
+	canonical, status := r.resolveTiers(target)
+	if status == linkMissing && strings.HasSuffix(target, ".md") {
+		if strippedCanonical, strippedStatus := r.resolveTiers(strings.TrimSuffix(target, ".md")); strippedStatus != linkMissing {
+			return strippedCanonical, strippedStatus
+		}
+	}
+	return canonical, status
+}
+
+func (r linkResolver) resolveTiers(target string) (string, linkStatus) {
 	for tier := range tierCount {
 		key := targetKey(tier, target)
 		if key == "" {
