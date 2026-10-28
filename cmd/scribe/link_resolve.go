@@ -65,12 +65,22 @@ func entryKeys(tier int, entry resolverEntry) []string {
 		stem := strings.TrimSuffix(path.Base(entry.Path), ".md")
 		keys := []string{stem}
 		for _, name := range names {
-			keys = append(keys, slugify(name))
+			plainSlug := slugify(name)
+			keys = append(keys, plainSlug)
+			// extractWikilinks drops inline code spans from link text, so a
+			// link to a title containing code arrives without them.
+			if codeFreeSlug := slugify(stripCodeSpans(name)); codeFreeSlug != plainSlug {
+				keys = append(keys, codeFreeSlug)
+			}
 		}
 		return keys
 	default:
 		return []string{strings.ToLower(strings.TrimSuffix(entry.Path, ".md"))}
 	}
+}
+
+func stripCodeSpans(text string) string {
+	return codeSpanRE.ReplaceAllString(codeSpanDoubleRE.ReplaceAllString(text, ""), "")
 }
 
 func targetKey(tier int, target string) string {

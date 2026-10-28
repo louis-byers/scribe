@@ -121,3 +121,18 @@ func TestResolve_TitleEndingInMD(t *testing.T) {
 	assertResolve(t, resolver, "kafka.md", "Kafka", linkFuzzy)
 	assertResolve(t, resolver, "Nope.md", "Nope.md", linkMissing)
 }
+
+func TestResolve_TitleWithCodeSpans(t *testing.T) {
+	resolver := newLinkResolver([]resolverEntry{
+		{Title: "Alembic wraps `upgrade head` in ONE transaction", Path: "solutions/alembic.md"},
+		{Title: "Title with `code` inside", Path: "solutions/code-title.md"},
+	})
+	assertResolve(t, resolver, "Alembic wraps  in ONE transaction",
+		"Alembic wraps `upgrade head` in ONE transaction", linkFuzzy)
+
+	links := extractWikilinks([]byte("See [[Title with `code` inside]] now."))
+	if len(links) != 1 {
+		t.Fatalf("extractWikilinks = %v, want one link", links)
+	}
+	assertResolve(t, resolver, links[0], "Title with `code` inside", linkFuzzy)
+}
