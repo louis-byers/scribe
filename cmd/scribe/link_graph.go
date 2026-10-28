@@ -132,18 +132,26 @@ func buildLinkGraph(root string) (linkGraph, error) {
 			sourceTitle = rel
 		}
 		edge := linkEdge{SourcePath: rel, SourceTitle: sourceTitle, Generated: strings.HasPrefix(filepath.Base(rel), "_")}
-		seen := map[string]bool{}
+		seenTargets := map[string]bool{}
+		seenCanonical := map[string]bool{}
 		for _, raw := range extractWikilinks(content) {
 			target := normalizeLinkTarget(raw)
-			if target == "" {
+			if target == "" || seenTargets[target] {
 				continue
 			}
 			canonical, status := resolver.resolve(target)
-			if seen[canonical] || (status != linkMissing && canonical == sourceTitle) {
+			if status != linkMissing && canonical == sourceTitle {
 				continue
 			}
-			seen[canonical] = true
+			seenTargets[target] = true
 			outbound[rel]++
+			if status == linkFuzzy && !edge.Generated {
+				graph.Broken = append(graph.Broken, brokenLink{Raw: target, Canonical: canonical, SourcePath: rel})
+			}
+			if seenCanonical[canonical] {
+				continue
+			}
+			seenCanonical[canonical] = true
 			switch status {
 			case linkAmbiguous:
 				ambiguous[target] = true
@@ -151,9 +159,6 @@ func buildLinkGraph(root string) (linkGraph, error) {
 				graph.Missing[canonical] = append(graph.Missing[canonical], edge)
 			default:
 				graph.Inbound[canonical] = append(graph.Inbound[canonical], edge)
-				if status == linkFuzzy && !edge.Generated {
-					graph.Broken = append(graph.Broken, brokenLink{Raw: target, Canonical: canonical, SourcePath: rel})
-				}
 			}
 		}
 		return nil

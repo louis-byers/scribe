@@ -58,10 +58,36 @@ func TestLinkGraph_SelfLinkViaAliasIgnored(t *testing.T) {
 	if !slices.Equal(g.Inbound["D"], want) {
 		t.Errorf("Inbound[D] = %v, want %v", g.Inbound["D"], want)
 	}
+	if got := articleByTitle(t, g, "D").Outbound; got != 0 {
+		t.Errorf("D Outbound = %d, want 0", got)
+	}
+}
+
+func articleByTitle(t *testing.T, g linkGraph, title string) graphArticle {
+	t.Helper()
 	for _, article := range g.Articles {
-		if article.Title == "D" && article.Outbound != 0 {
-			t.Errorf("D Outbound = %d, want 0", article.Outbound)
+		if article.Title == title {
+			return article
 		}
+	}
+	t.Fatalf("%s missing from Articles", title)
+	return graphArticle{}
+}
+
+func TestLinkGraph_OutboundCountsDistinctTargets(t *testing.T) {
+	g := buildTestGraph(t, resolverTestKB(t))
+	if got := articleByTitle(t, g, "B").Outbound; got != 3 {
+		t.Errorf("B Outbound = %d, want 3", got)
+	}
+}
+
+func TestLinkGraph_BrokenAfterExactLinkToSameArticle(t *testing.T) {
+	root := resolverTestKB(t)
+	writeKBFile(t, root, "wiki/f.md", "---\ntitle: \"F\"\ntype: solution\ndomain: general\n---\n\n[[A]] then [[alpha]]\n")
+	g := buildTestGraph(t, root)
+	want := brokenLink{Raw: "alpha", Canonical: "A", SourcePath: "wiki/f.md"}
+	if !slices.Contains(g.Broken, want) {
+		t.Errorf("Broken = %v, missing %v", g.Broken, want)
 	}
 }
 
