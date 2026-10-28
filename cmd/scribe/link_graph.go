@@ -206,3 +206,29 @@ func backlinksMap(graph linkGraph) map[string][]string {
 	}
 	return backlinks
 }
+
+// graphOrphans returns the sorted, deduped titles of live, non-rolling
+// articles that no other file links to.
+func graphOrphans(g linkGraph) []string {
+	seen := map[string]bool{}
+	orphans := []string{}
+	for _, article := range g.Articles {
+		if article.Rolling || seen[article.Title] || len(g.Inbound[article.Title]) > 0 {
+			continue
+		}
+		seen[article.Title] = true
+		orphans = append(orphans, article.Title)
+	}
+	sort.Strings(orphans)
+	return orphans
+}
+
+// graphMissing returns the sorted raw targets that match no article.
+func graphMissing(g linkGraph) []string {
+	missing := make([]string, 0, len(g.Missing))
+	for target := range g.Missing {
+		missing = append(missing, target)
+	}
+	sort.Strings(missing)
+	return missing
+}
