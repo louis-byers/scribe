@@ -117,12 +117,13 @@ func claudeCommandEnv() []string {
 }
 
 // claudeFailure builds the error for a non-zero `claude -p` exit. The
-// envelope's result text ("Failed to authenticate: …") goes on the first
-// line: the tail behind it is one long JSON line, and run records and
+// error envelope's result text ("Failed to authenticate: …"), flattened
+// to one line, goes first: the tail behind it is one long JSON line, and run records and
 // doctor truncate long before the result field.
 func claudeFailure(err error, env claudeResultEnvelope, envOK bool, tail string) error {
-	if envOK && strings.TrimSpace(env.Result) != "" {
-		return fmt.Errorf("claude -p: %w: %s\n%s", err, truncateBytes(strings.TrimSpace(env.Result), 300), tail)
+	reason := strings.Join(strings.Fields(env.Result), " ")
+	if envOK && env.IsError && reason != "" {
+		return fmt.Errorf("claude -p: %w: %s\n%s", err, truncateBytes(reason, 300), tail)
 	}
 	return fmt.Errorf("claude -p: %w\n%s", err, tail)
 }

@@ -72,6 +72,16 @@ func TestClaudeFailureNamesTheResult(t *testing.T) {
 		t.Errorf("first line %q does not name the failure", first)
 	}
 
+	multiLine, _ := parseClaudeResult(`{"type":"result","is_error":true,"result":"API Error: 400\n{\"type\":\"error\"}"}`)
+	if got := claudeFailure(errors.New("exit status 1"), multiLine, true, "t").Error(); !strings.HasPrefix(got, `claude -p: exit status 1: API Error: 400 {"type":"error"}`+"\n") {
+		t.Errorf("multi-line result not flattened onto the first line: %q", got)
+	}
+
+	success, _ := parseClaudeResult(`{"type":"result","is_error":false,"result":"Here is the article"}`)
+	if got := claudeFailure(errors.New("exit status 1"), success, true, "t").Error(); strings.Contains(strings.SplitN(got, "\n", 2)[0], "Here is the article") {
+		t.Errorf("a non-error result was reported as the failure reason: %q", got)
+	}
+
 	plain := claudeFailure(errors.New("exit status 1"), claudeResultEnvelope{}, false, "tail")
 	if !strings.HasPrefix(plain.Error(), "claude -p: exit status 1\ntail") {
 		t.Errorf("no-envelope error changed shape: %q", plain.Error())
