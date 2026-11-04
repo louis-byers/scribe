@@ -6,6 +6,19 @@ All notable changes to scribe are documented here. Format follows [Keep a Change
 
 ### Added
 
+- **Scheduled runs can use a long-lived Claude token.** Put a
+  `claude setup-token` value under `integration_tokens.claude` in
+  `~/.config/scribe/config.yaml` (or export `SCRIBE_CLAUDE_TOKEN`), and
+  scribe passes it to every `claude -p` call as
+  `CLAUDE_CODE_OAUTH_TOKEN`. LaunchAgents never read a shell profile, so
+  an exported token never reached cron runs, and an expired keychain
+  login failed every LLM step. An exported `CLAUDE_CODE_OAUTH_TOKEN`
+  still wins; with no token, claude keeps using its keychain login.
+- **A failed `claude -p` names the reason.** The envelope's result text
+  ("Failed to authenticate: OAuth session expired…") now leads the
+  error, so run records and `scribe doctor` show it instead of a bare
+  `exit status 1` followed by a truncated JSON line.
+
 - **Five more shared KB files merge cleanly between team machines.**
   `wiki/_contextualized_log.json` and `wiki/_absorb_log.json` union their
   entries (newer wins per file), `wiki/_extraction_outcomes.json` unions
