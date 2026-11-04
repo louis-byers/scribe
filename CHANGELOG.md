@@ -6,6 +6,23 @@ All notable changes to scribe are documented here. Format follows [Keep a Change
 
 ### Added
 
+- **Five more shared KB files merge cleanly between team machines.**
+  `wiki/_contextualized_log.json` and `wiki/_absorb_log.json` union their
+  entries (newer wins per file), `wiki/_extraction_outcomes.json` unions
+  its entries oldest first, and `wiki/_duplicates.md` /
+  `wiki/_identity-proposals.md` resolve as regenerable reports. Before
+  this, two members' overlapping syncs aborted the rebase and left the
+  push rejected until someone merged by hand. Contextualize also stops
+  re-stamping already-logged raw articles on every run, which rewrote
+  the log (and conflicted) even when nothing changed.
+- **Agent blocks and the scribe-kb skill ask for one KB query before
+  the first file edit**, including continuations, hand-backs, reviews
+  and ship runs; review findings are checked against recorded decisions,
+  and subagent briefs carry the same instruction. The blocks now say
+  "knowledge base" rather than "personal knowledge base", and address
+  "the user" where they meant the person in the session, so a shared
+  team KB reads correctly for every member.
+
 - **`sync --dry-run --estimate` prices project extraction and session
   mining.** It used to cover only the contextualize and absorb queues, so
   the most expensive phases of a run never showed up. Extraction now counts
