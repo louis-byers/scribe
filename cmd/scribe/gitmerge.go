@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -193,24 +194,32 @@ func mergeTimestampMapContent(ours, theirs []byte) []byte {
 }
 
 // mergeOutcomesContent merges wiki/_extraction_outcomes.json, an
-// append-only {"entries": [...]} list. Entries dedupe on their exact
-// JSON (the shared base appears on both sides) and sort oldest first.
+// append-only {"entries": [...]} list. Entries dedupe on their compacted
+// JSON (the shared base appears on both sides, possibly indented
+// differently) and sort oldest first. Unknown top-level keys survive.
 func mergeOutcomesContent(ours, theirs []byte) []byte {
-	parse := func(b []byte) []json.RawMessage {
-		var doc struct {
-			Entries []json.RawMessage `json:"entries"`
+	parse := func(b []byte) (map[string]json.RawMessage, []json.RawMessage) {
+		var doc map[string]json.RawMessage
+		if len(b) == 0 || json.Unmarshal(b, &doc) != nil || doc == nil {
+			return map[string]json.RawMessage{}, nil
 		}
-		if len(b) == 0 || json.Unmarshal(b, &doc) != nil {
-			return nil
-		}
-		return doc.Entries
+		var entries []json.RawMessage
+		_ = json.Unmarshal(doc["entries"], &entries)
+		return doc, entries
 	}
+	ourDoc, ourEntries := parse(ours)
+	theirDoc, theirEntries := parse(theirs)
+
 	seen := map[string]bool{}
-	var entries []json.RawMessage
-	for _, entry := range append(parse(ours), parse(theirs)...) {
-		if !seen[string(entry)] {
-			seen[string(entry)] = true
-			entries = append(entries, entry)
+	entries := []json.RawMessage{}
+	for _, entry := range append(ourEntries, theirEntries...) {
+		var compacted bytes.Buffer
+		if json.Compact(&compacted, entry) != nil {
+			continue
+		}
+		if !seen[compacted.String()] {
+			seen[compacted.String()] = true
+			entries = append(entries, compacted.Bytes())
 		}
 	}
 	entryTime := func(raw json.RawMessage) string {
@@ -221,10 +230,20 @@ func mergeOutcomesContent(ours, theirs []byte) []byte {
 		return e.Timestamp
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entryTime(entries[i]) < entryTime(entries[j]) })
-	if entries == nil {
-		entries = []json.RawMessage{}
+
+	out := map[string]json.RawMessage{}
+	for k, v := range theirDoc {
+		out[k] = v
 	}
-	data, err := json.MarshalIndent(map[string][]json.RawMessage{"entries": entries}, "", "  ")
+	for k, v := range ourDoc {
+		out[k] = v
+	}
+	entriesData, err := json.Marshal(entries)
+	if err != nil {
+		return ours
+	}
+	out["entries"] = entriesData
+	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return ours
 	}
