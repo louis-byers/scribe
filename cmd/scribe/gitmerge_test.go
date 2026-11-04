@@ -500,11 +500,43 @@ func TestMergeOutcomesContent(t *testing.T) {
 	if err := json.Unmarshal(out, &doc); err != nil {
 		t.Fatalf("merged output is not valid JSON: %v", err)
 	}
-	var shas []string
+	shas := make([]string, 0, len(doc.Entries))
 	for _, e := range doc.Entries {
 		shas = append(shas, e.CommitSHA)
 	}
 	if got, want := strings.Join(shas, ","), "base,local,remote"; got != want {
 		t.Errorf("entries = %s, want %s (deduped, oldest first)", got, want)
+	}
+}
+
+func TestMergeOutcomesContentEdgeCases(t *testing.T) {
+	t.Run("shared entry indented differently is kept once", func(t *testing.T) {
+		out := mergeOutcomesContent(
+			[]byte(`{"entries":[{"timestamp":"2026-06-01T00:00:00Z","commit_sha":"base"}]}`),
+			[]byte("{\n  \"entries\": [\n    {\n      \"timestamp\": \"2026-06-01T00:00:00Z\",\n      \"commit_sha\": \"base\"\n    }\n  ]\n}\n"))
+		if n := strings.Count(string(out), `"base"`); n != 1 {
+			t.Errorf("shared entry appears %d times, want 1: %s", n, out)
+		}
+	})
+
+	t.Run("unknown top-level keys are preserved", func(t *testing.T) {
+		out := mergeOutcomesContent([]byte(`{"entries":[],"future_field":1}`), []byte(`{"entries":[]}`))
+		if !strings.Contains(string(out), "future_field") {
+			t.Errorf("unknown key dropped: %s", out)
+		}
+	})
+
+	t.Run("garbage on one side does not lose the other", func(t *testing.T) {
+		out := mergeOutcomesContent([]byte(`not json`), []byte(`{"entries":[{"commit_sha":"keep"}]}`))
+		if !strings.Contains(string(out), `"keep"`) {
+			t.Errorf("valid side lost: %s", out)
+		}
+	})
+}
+
+func TestMergeTimestampMapContentGarbageOurs(t *testing.T) {
+	out := mergeTimestampMapContent([]byte(`not json`), []byte(`{"keep.md":"2026-01-01T00:00:00Z"}`))
+	if !strings.Contains(string(out), "keep.md") {
+		t.Errorf("valid side lost when ours is corrupt: %s", out)
 	}
 }
