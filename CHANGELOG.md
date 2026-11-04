@@ -35,7 +35,6 @@ All notable changes to scribe are documented here. Format follows [Keep a Change
   `daily_output_token_ceiling`, both per-KB and machine-wide. Runs that
   exited 0 with `is_error` already counted and are unchanged. Per-op
   estimates (`sync --dry-run --estimate`) still use successful calls only.
-### Changed
 
 - **Superseded articles drop out of generated outputs (#139).** An
   article with `status: superseded` in its frontmatter (a full
