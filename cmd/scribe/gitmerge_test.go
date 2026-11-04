@@ -432,3 +432,79 @@ func TestMergeSessionsLogContent(t *testing.T) {
 		}
 	})
 }
+
+func TestPullRebaseMergesTimestampMapConflict(t *testing.T) {
+	for _, rel := range []string{"wiki/_contextualized_log.json", "wiki/_absorb_log.json"} {
+		t.Run(rel, func(t *testing.T) {
+			clone := setupCloneContentConflict(t, rel,
+				`{}`+"\n",
+				`{"a.md":{"sha":"aa","at":"2026-06-10T10:00:00Z"}}`+"\n",
+				`{"b.md":"2026-06-10T11:00:00Z"}`+"\n")
+
+			ok, _, err := pullRebase(clone)
+			if err != nil {
+				t.Fatalf("%s conflict must merge, got: %v", rel, err)
+			}
+			if !ok || rebaseInProgress(clone) {
+				t.Fatalf("pull did not complete cleanly (ok=%v)", ok)
+			}
+			merged := loadJSONMap(filepath.Join(clone, rel))
+			if merged["a.md"] == nil || merged["b.md"] == nil {
+				t.Errorf("merge lost an entry: %v", merged)
+			}
+		})
+	}
+}
+
+func TestMergeTimestampMapContent(t *testing.T) {
+	t.Run("same key keeps the newer string timestamp", func(t *testing.T) {
+		out := mergeTimestampMapContent(
+			[]byte(`{"x.md":"2026-01-01T00:00:00Z"}`),
+			[]byte(`{"x.md":"2026-03-01T00:00:00Z"}`))
+		if !strings.Contains(string(out), "2026-03-01") {
+			t.Errorf("newer timestamp did not win: %s", out)
+		}
+	})
+
+	t.Run("same key keeps the newer at field", func(t *testing.T) {
+		out := mergeTimestampMapContent(
+			[]byte(`{"x.md":{"sha":"new","at":"2026-03-01T00:00:00Z"}}`),
+			[]byte(`{"x.md":{"sha":"old","at":"2026-01-01T00:00:00Z"}}`))
+		if !strings.Contains(string(out), `"new"`) {
+			t.Errorf("newer absorb entry did not win: %s", out)
+		}
+	})
+
+	t.Run("garbage on one side does not lose the other", func(t *testing.T) {
+		out := mergeTimestampMapContent([]byte(`{"keep.md":"2026-01-01T00:00:00Z"}`), []byte(`not json`))
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal(out, &doc); err != nil || doc["keep.md"] == nil {
+			t.Errorf("valid side lost: %s (err %v)", out, err)
+		}
+	})
+}
+
+func TestMergeOutcomesContent(t *testing.T) {
+	shared := `{"timestamp":"2026-06-01T00:00:00Z","label":"session","commit_sha":"base"}`
+	remote := `{"timestamp":"2026-06-03T00:00:00Z","label":"session","commit_sha":"remote"}`
+	local := `{"timestamp":"2026-06-02T00:00:00Z","label":"session","commit_sha":"local"}`
+	out := mergeOutcomesContent(
+		[]byte(`{"entries":[`+shared+`,`+remote+`]}`),
+		[]byte(`{"entries":[`+shared+`,`+local+`]}`))
+
+	var doc struct {
+		Entries []struct {
+			CommitSHA string `json:"commit_sha"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("merged output is not valid JSON: %v", err)
+	}
+	var shas []string
+	for _, e := range doc.Entries {
+		shas = append(shas, e.CommitSHA)
+	}
+	if got, want := strings.Join(shas, ","), "base,local,remote"; got != want {
+		t.Errorf("entries = %s, want %s (deduped, oldest first)", got, want)
+	}
+}
