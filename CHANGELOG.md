@@ -2,6 +2,41 @@
 
 All notable changes to scribe are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/) (pre-1.0 — minor bumps may include breaking changes).
 
+## [Unreleased] — scoot fork
+
+Fork-only changes carried on top of upstream for the shared team KB.
+
+### Added
+
+- **Scheduled runs can use a long-lived Claude token.** Put a
+  `claude setup-token` value under `integration_tokens.claude` in
+  `~/.config/scribe/config.yaml` (or export `SCRIBE_CLAUDE_TOKEN`), and
+  scribe passes it to every `claude -p` call as
+  `CLAUDE_CODE_OAUTH_TOKEN`. LaunchAgents never read a shell profile, so
+  an exported token never reached cron runs, and an expired keychain
+  login failed every LLM step. An exported `CLAUDE_CODE_OAUTH_TOKEN`
+  still wins; with no token, claude keeps using its keychain login.
+- **A failed `claude -p` names the reason.** The envelope's result text
+  ("Failed to authenticate: OAuth session expired…") now leads the
+  error, so run records and `scribe doctor` show it instead of a bare
+  `exit status 1` followed by a truncated JSON line.
+- **Five more shared KB files merge cleanly between team machines.**
+  `wiki/_contextualized_log.json` and `wiki/_absorb_log.json` union their
+  entries (newer wins per file), `wiki/_extraction_outcomes.json` unions
+  its entries oldest first, and `wiki/_duplicates.md` /
+  `wiki/_identity-proposals.md` resolve as regenerable reports. Before
+  this, two members' overlapping syncs aborted the rebase and left the
+  push rejected until someone merged by hand. Contextualize also stops
+  re-stamping already-logged raw articles on every run, which rewrote
+  the log (and conflicted) even when nothing changed.
+- **Agent blocks and the scribe-kb skill ask for one KB query before
+  the first file edit**, including continuations, hand-backs, reviews
+  and ship runs; review findings are checked against recorded decisions,
+  and subagent briefs carry the same instruction. The blocks now say
+  "knowledge base" rather than "personal knowledge base", and address
+  "the user" where they meant the person in the session, so a shared
+  team KB reads correctly for every member.
+
 ## [Unreleased]
 
 ### Added
@@ -233,23 +268,6 @@ index-consistency warning until then. Failed `claude -p` runs that report
 usage now count toward `daily_output_token_ceiling`.
 
 ### Added
-
-- **Five more shared KB files merge cleanly between team machines.**
-  `wiki/_contextualized_log.json` and `wiki/_absorb_log.json` union their
-  entries (newer wins per file), `wiki/_extraction_outcomes.json` unions
-  its entries oldest first, and `wiki/_duplicates.md` /
-  `wiki/_identity-proposals.md` resolve as regenerable reports. Before
-  this, two members' overlapping syncs aborted the rebase and left the
-  push rejected until someone merged by hand. Contextualize also stops
-  re-stamping already-logged raw articles on every run, which rewrote
-  the log (and conflicted) even when nothing changed.
-- **Agent blocks and the scribe-kb skill ask for one KB query before
-  the first file edit**, including continuations, hand-backs, reviews
-  and ship runs; review findings are checked against recorded decisions,
-  and subagent briefs carry the same instruction. The blocks now say
-  "knowledge base" rather than "personal knowledge base", and address
-  "the user" where they meant the person in the session, so a shared
-  team KB reads correctly for every member.
 
 - **`sync --dry-run --estimate` prices project extraction and session
   mining.** It used to cover only the contextualize and absorb queues, so
