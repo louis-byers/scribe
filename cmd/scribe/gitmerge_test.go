@@ -58,6 +58,7 @@ func setupCloneWithConflict(t *testing.T, rels ...string) string {
 
 func TestPullRebaseAutoResolvesDerivedConflict(t *testing.T) {
 	clone := setupCloneWithConflict(t, "wiki/_index.md")
+	logs := captureSlog(t)
 
 	ok, pulled, err := pullRebase(clone)
 	if err != nil {
@@ -78,6 +79,9 @@ func TestPullRebaseAutoResolvesDerivedConflict(t *testing.T) {
 	}
 	if got := conflictedFiles(clone); len(got) != 0 {
 		t.Errorf("unmerged files remain: %v", got)
+	}
+	if !strings.Contains(logs.String(), "pull conflict in wiki/_index.md: kept local side") {
+		t.Errorf("log does not name the resolved file and how:\n%s", logs.String())
 	}
 }
 
@@ -341,10 +345,14 @@ func TestPullRebaseMergesSessionsLogConflict(t *testing.T) {
 		`{"last_scan":"2026-06-10T09:00:00Z","processed":{}}`+"\n",
 		`{"last_scan":"2026-06-10T10:00:00Z","processed":{"sess-a":{"extracted":"2026-06-10T10:00:00Z","project":"alpha"}}}`+"\n",
 		`{"last_scan":"2026-06-10T11:00:00Z","processed":{"sess-b":{"extracted":"2026-06-10T11:00:00Z","project":"beta"}}}`+"\n")
+	logs := captureSlog(t)
 
 	ok, _, err := pullRebase(clone)
 	if err != nil {
 		t.Fatalf("sessions-log conflict must merge, got: %v", err)
+	}
+	if !strings.Contains(logs.String(), "pull conflict in wiki/_sessions_log.json: merged both sides") {
+		t.Errorf("log does not name the merged file:\n%s", logs.String())
 	}
 	if !ok || rebaseInProgress(clone) {
 		t.Fatalf("pull did not complete cleanly (ok=%v)", ok)

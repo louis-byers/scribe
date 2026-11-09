@@ -8,6 +8,10 @@ Fork-only changes carried on top of upstream for the shared team KB.
 
 ### Added
 
+- **Each auto-resolved pull conflict is logged by file** (#153): `pull
+  conflict in <path>: merged both sides`, `kept local side (regenerates
+  after pull)` or `removed (regenerates after pull)`. Before, one line
+  covered every resolution and named no file.
 - **Scheduled runs can use a long-lived Claude token.** Put a
   `claude setup-token` value under `integration_tokens.claude` in
   `~/.config/scribe/config.yaml` (or export `SCRIBE_CLAUDE_TOKEN`), and
