@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -372,10 +373,7 @@ func withHigherWatermark(winner, other json.RawMessage) json.RawMessage {
 	var carried any
 	switch w := winnerEntry.(type) {
 	case map[string]any:
-		copied := make(map[string]any, len(w)+1)
-		for k, v := range w {
-			copied[k] = v
-		}
+		copied := maps.Clone(w)
 		copied[sessionsLogThroughSeqKey] = otherSeq
 		delete(copied, sessionsLogPartialKey)
 		if entryPartial(otherEntry) {
