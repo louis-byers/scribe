@@ -372,8 +372,10 @@ func conflictResolution(repoPath, rel string) (conflictRule, bool) {
 	return rule, true
 }
 
-// resolveConflictedFile settles and stages one file by its rule.
+// resolveConflictedFile settles and stages one file by its rule, and logs
+// one line per file so the sync log shows what each conflict became.
 func resolveConflictedFile(repoPath, rel string, rule conflictRule) error {
+	var outcome string
 	switch rule.resolve {
 	case resolveKeepModified:
 		// The driver is not called for delete/modify. Keep the edit: a
@@ -385,7 +387,7 @@ func resolveConflictedFile(repoPath, rel string, rule conflictRule) error {
 		if out, err := runCmdErr(repoPath, "git", "checkout", side, "--", rel); err != nil {
 			return fmt.Errorf("keeping the modified side of %s failed: %s", rel, out)
 		}
-		defer logMsg("git", "pull conflict in %s: kept the modified side (delete/modify)", rel)
+		outcome = "kept the modified side (delete/modify)"
 	case resolveMerge:
 		if !semanticResolve(repoPath, rel) {
 			return fmt.Errorf("semantic merge of %s failed", rel)
@@ -398,11 +400,12 @@ func resolveConflictedFile(repoPath, rel string, rule conflictRule) error {
 		if out, err := runCmdErr(repoPath, "git", "checkout", "--theirs", "--", rel); err != nil {
 			return fmt.Errorf("checking out %s failed: %s", rel, out)
 		}
-		defer logMsg("git", "pull conflict in %s: kept local side (regenerates after pull)", rel)
+		outcome = "kept local side (regenerates after pull)"
 	}
 	if out, err := runCmdErr(repoPath, "git", "add", "--", rel); err != nil {
 		return fmt.Errorf("staging %s during auto-resolve failed: %s", rel, out)
 	}
+	logMsg("git", "pull conflict in %s: %s", rel, outcome)
 	return nil
 }
 
