@@ -1346,6 +1346,7 @@ func checkState(root string, cfg *ScribeConfig) []check {
 		}
 	}
 
+	out = append(out, checkTeamVersions(root)...)
 	return out
 }
 
