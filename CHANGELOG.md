@@ -45,6 +45,19 @@ Fork-only changes carried on top of upstream for the shared team KB.
 
 ### Added
 
+- **Every scribe commit now carries a `Scribe-Version` trailer.** Sync,
+  commit, absorb, dream, the dream lease, `promote` and the `init` scaffold
+  commit all end with `Scribe-Version: <version>`, so a team can tell which
+  binary wrote each commit. It is a message paragraph, so it works on any
+  git version.
+
+- **`scribe doctor` shows each committer's scribe version.** A new
+  `team-versions` row in the state section reads the last 14 days of
+  commits and keeps each author's newest version. It is `[ok]` when everyone
+  matches this binary, and `[warn]` names each member who runs another
+  version, a dev build, or a pre-trailer release. Your own row is marked
+  `(you)` and clears after this machine's next commit.
+
 - **`scribe sessions backfill-watermarks [-n] [--cap N] [--mode
   tools|envelope] [--mined-before YYYY-MM-DD]`** (#146) gives entries mined before watermarks existed the
   watermark their mine most likely reached, so the remine pass can read
