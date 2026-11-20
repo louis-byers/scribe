@@ -19,6 +19,15 @@ All notable changes to scribe are documented here. Format follows [Keep a Change
   text ("Failed to authenticate: OAuth session expired…") now leads the
   error, so run records and `scribe doctor` show it instead of a bare
   `exit status 1` followed by a truncated JSON line.
+- **Agent blocks and the scribe-kb skill ask for one KB query before
+  the first file edit** (#150), including continuations, hand-backs,
+  reviews and ship runs; review findings are checked against recorded
+  decisions, and subagent briefs carry the same instruction. On one KB,
+  sessions that queried before their first edit went from 32% to 79%
+  over 7 days. The blocks now say "knowledge base" rather than "personal
+  knowledge base", and address "the user" where they meant the person in
+  the session, so a team KB reads correctly for every member. Existing
+  installs pick it up on the next `scribe init --yes`.
 
 ### Fixed
 
