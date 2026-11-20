@@ -28,6 +28,18 @@ All notable changes to scribe are documented here. Format follows [Keep a Change
   knowledge base", and address "the user" where they meant the person in
   the session, so a team KB reads correctly for every member. Existing
   installs pick it up on the next `scribe init --yes`.
+- **Every scribe commit now carries a `Scribe-Version` trailer.** Sync,
+  commit, absorb, dream, the dream lease, `promote` and the `init` scaffold
+  commit all end with `Scribe-Version: <version>`, so a team can tell which
+  binary wrote each commit. It is a message paragraph, so it works on any
+  git version.
+
+- **`scribe doctor` shows each committer's scribe version.** A new
+  `team-versions` row in the state section reads the last 14 days of
+  commits and keeps each author's newest version. It is `[ok]` when everyone
+  matches this binary, and `[warn]` names each member who runs another
+  version, a dev build, or a pre-trailer release. Your own row is marked
+  `(you)` and clears after this machine's next commit.
 
 ### Fixed
 
